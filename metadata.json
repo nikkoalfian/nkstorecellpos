@@ -1,0 +1,8 @@
+{
+  "name": "NK STORE CELL - SOLUTION PAYMENT DIGITAL",
+  "description": "Aplikasi lengkap untuk konter pulsa, toko aksesoris HP, serta agen transfer & tarik tunai dengan cetak struk dan pembukuan laba rugi.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
