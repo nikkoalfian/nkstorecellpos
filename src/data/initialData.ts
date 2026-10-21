@@ -8,7 +8,29 @@ import {
   KasbonRecord,
   Operator,
   ShiftRecord,
+  StaffAccount,
 } from '../types';
+
+export const DEFAULT_STAFF_ACCOUNTS: StaffAccount[] = [
+  {
+    id: 'staff-1',
+    name: 'Kasir 1',
+    username: 'kasir1',
+    pin: '0000',
+    roleTitle: 'Kasir Konter',
+    isActive: true,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'staff-2',
+    name: 'Kasir 2',
+    username: 'kasir2',
+    pin: '0000',
+    roleTitle: 'Kasir Shift Sore',
+    isActive: true,
+    createdAt: new Date().toISOString(),
+  },
+];
 
 export const DEFAULT_STAFF_PERMISSIONS: StaffPermissions = {
   canAccessShift: true,
@@ -28,6 +50,7 @@ export const DEFAULT_STAFF_PERMISSIONS: StaffPermissions = {
 export const INITIAL_SETTINGS: StoreSettings = {
   storeName: 'NK STORE CELL',
   tagline: 'Solution Payment Digital - Pulsa, Kuota, Aksesoris, Transfer & Tarik Tunai',
+  logoUrl: '/logo_nk.jpg',
   ownerName: 'Nikko Alfian',
   address: 'Jl. Pemuda No. 88, Blok C (Depan Indomaret)',
   phone: '081298765432',
@@ -42,7 +65,10 @@ export const INITIAL_SETTINGS: StoreSettings = {
     'Server 4 - Multi PPOB (PLN, E-Wallet & Lainnya)',
   ],
   ownerPin: '1234',
+  staffPin: '0000',
+  staffAccounts: DEFAULT_STAFF_ACCOUNTS,
   enablePinProtection: true,
+  requireLoginOnStart: true,
   staffPermissions: DEFAULT_STAFF_PERMISSIONS,
 };
 

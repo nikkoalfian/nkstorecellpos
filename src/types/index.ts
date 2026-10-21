@@ -153,9 +153,20 @@ export interface StaffPermissions {
   canViewCostPrice: boolean; // Melihat Estimasi Laba & Harga Modal di Kasir POS
 }
 
+export interface StaffAccount {
+  id: string;
+  name: string; // Nama kasir, misal: "Kasir 1 - Siti"
+  username: string; // Username untuk login kasir, misal: "kasir1"
+  pin: string; // PIN login kasir 4-6 digit
+  roleTitle?: string; // Jabatan / peran, misal: "Kasir Konter", "Shift Pagi"
+  isActive: boolean;
+  createdAt: string;
+}
+
 export interface StoreSettings {
   storeName: string;
   tagline: string;
+  logoUrl?: string; // URL atau base64 gambar logo toko kustom
   ownerName: string;
   address: string;
   phone: string;
@@ -165,6 +176,17 @@ export interface StoreSettings {
   printerPaperWidth: '58mm' | '80mm';
   serverNames: [string, string, string, string]; // Nama 4 server pulsa
   ownerPin?: string; // Default '1234'
+  staffPin?: string; // PIN akses cepat untuk staf/kasir (opsional fallback)
+  staffAccounts?: StaffAccount[]; // Daftar akun login staf/kasir yang dibuat oleh owner
   enablePinProtection?: boolean; // Aktifkan proteksi PIN
+  requireLoginOnStart?: boolean; // Wajibkan otentikasi login saat pertama buka web app
   staffPermissions?: StaffPermissions; // Pengaturan hak akses staf/kasir oleh pemilik
 }
+
+export interface AuthUser {
+  role: 'owner' | 'staff';
+  name: string;
+  username?: string;
+  loginAt: string;
+}
+

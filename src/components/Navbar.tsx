@@ -17,6 +17,10 @@ import {
   X,
   Lock,
   Unlock,
+  LogOut,
+  User,
+  ShieldCheck,
+  Crown,
 } from 'lucide-react';
 
 export type ActiveTab =
@@ -49,6 +53,8 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
     viewMode,
     switchViewMode,
     hasPermission,
+    logout,
+    currentUser,
   } = useApp();
   const [currentTime, setCurrentTime] = useState<string>('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -89,6 +95,12 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
           label: '👑 Dashboard Owner',
           icon: Radio,
           color: 'text-amber-400',
+        },
+        {
+          id: 'permissions' as ActiveTab,
+          label: '🛡️ Hak Akses Staf',
+          icon: ShieldCheck,
+          color: 'text-amber-300',
         },
         {
           id: 'shift' as ActiveTab,
@@ -164,10 +176,21 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
         <div className="flex items-center justify-between h-16 gap-3">
           {/* Brand Logo & Name */}
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-cyan-500 flex items-center justify-center text-white shadow-lg shadow-blue-900/30 shrink-0">
-              <Radio className="w-5 h-5 animate-pulse" />
+            <div
+              onClick={onOpenSettings}
+              title="Klik untuk mengubah nama atau logo toko di Pengaturan"
+              className="w-10 h-10 rounded-2xl bg-black flex items-center justify-center text-white shadow-lg shadow-black/40 shrink-0 overflow-hidden border border-slate-700/60 cursor-pointer hover:scale-105 transition active:scale-95 group"
+            >
+              <img
+                src={settings.logoUrl || '/logo_nk.jpg'}
+                alt={settings.storeName}
+                className="w-full h-full object-contain"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).src = '/assets/aistudio/logo_nk_960b32b2.jpg';
+                }}
+              />
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 cursor-pointer" onClick={onOpenSettings} title="Klik untuk Pengaturan Toko">
               <h1 className="font-extrabold text-white text-base sm:text-lg tracking-tight truncate flex items-center gap-2">
                 {settings.storeName}
               </h1>
@@ -217,20 +240,22 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
               onClick={() => {
                 if (isOwner) {
                   switchViewMode('staff');
-                  setActiveTab('shift');
                 } else {
                   switchViewMode('owner');
-                  setActiveTab('owner_dashboard');
                 }
               }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 transition border shadow-md ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 transition border shadow-md cursor-pointer ${
                 isOwner
                   ? 'bg-gradient-to-r from-amber-950/80 to-yellow-950/80 hover:from-amber-900 hover:to-yellow-900 text-amber-300 border-amber-600/70 shadow-amber-950/30'
+                  : currentUser?.role === 'owner'
+                  ? 'bg-amber-900/60 hover:bg-amber-800/80 text-amber-300 border-amber-500/60'
                   : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
               }`}
               title={
                 isOwner
-                  ? 'Mode Pemilik Aktif. Klik untuk mengunci kembali ke Mode Kasir.'
+                  ? 'Mode Pemilik Aktif. Klik untuk beralih ke Mode Kasir.'
+                  : currentUser?.role === 'owner'
+                  ? 'Anda sedang menguji tampilan kasir. Klik untuk kembali ke Dashboard Owner.'
                   : 'Mode Kasir Aktif. Klik untuk membuka Mode Pemilik dengan PIN.'
               }
             >
@@ -240,6 +265,12 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
                   <span className="hidden sm:inline">👑 Mode Owner</span>
                   <span className="sm:hidden text-[10px]">Owner</span>
                   <span className="text-[10px] text-amber-400/80 font-normal hidden lg:inline">| Kunci</span>
+                </>
+              ) : currentUser?.role === 'owner' ? (
+                <>
+                  <Crown className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="hidden sm:inline">👑 Kembali ke Mode Owner</span>
+                  <span className="sm:hidden text-[10px]">Owner</span>
                 </>
               ) : (
                 <>
@@ -265,6 +296,17 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
               {!isOwnerUnlocked && (
                 <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-amber-500 border-2 border-slate-900" />
               )}
+            </button>
+
+            {/* Logout / Kunci Aplikasi */}
+            <button
+              type="button"
+              onClick={logout}
+              className="p-2 px-2.5 rounded-xl bg-slate-800 hover:bg-rose-950/80 text-slate-300 hover:text-rose-300 hover:border-rose-800/80 transition border border-slate-700 flex items-center gap-1.5 cursor-pointer active:scale-95"
+              title={`Keluar / Kunci Aplikasi (${currentUser?.name || 'Sesi'})`}
+            >
+              <LogOut className="w-5 h-5 text-rose-400" />
+              <span className="hidden xl:inline text-xs font-semibold text-rose-300">Keluar</span>
             </button>
 
             {/* Mobile Menu Toggle */}
@@ -305,16 +347,21 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
         <nav className="hidden lg:flex items-center gap-1 py-1.5 overflow-x-auto border-t border-slate-800/60 no-scrollbar">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = activeTab === item.id || (item.id === 'aksesoris' && activeTab === 'inventory');
+            const isActive = activeTab === item.id;
+            const isOwnerTab = item.id === 'owner_dashboard' || item.id === 'permissions';
 
             return (
               <button
                 key={item.id}
                 type="button"
                 onClick={() => setActiveTab(item.id)}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all duration-150 relative ${
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all duration-150 relative cursor-pointer ${
                   isActive
-                    ? 'bg-blue-600 text-white shadow-md shadow-blue-900/30'
+                    ? isOwnerTab
+                      ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-white shadow-md shadow-amber-950/50 font-bold'
+                      : 'bg-blue-600 text-white shadow-md shadow-blue-900/30 font-bold'
+                    : isOwnerTab
+                    ? 'text-amber-300 hover:text-white hover:bg-amber-950/40 border border-amber-800/30'
                     : 'text-slate-300 hover:text-white hover:bg-slate-800'
                 }`}
               >
@@ -323,7 +370,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
                 {item.badge !== undefined && (
                   <span
                     className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                      isActive ? 'bg-white text-blue-700' : 'bg-amber-500 text-slate-950'
+                      isActive ? 'bg-white text-slate-950' : 'bg-amber-500 text-slate-950'
                     }`}
                   >
                     {item.badge}
@@ -340,7 +387,8 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
         <div className="lg:hidden border-t border-slate-800 bg-slate-900 px-4 py-3 space-y-1">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = activeTab === item.id || (item.id === 'aksesoris' && activeTab === 'inventory');
+            const isActive = activeTab === item.id;
+            const isOwnerTab = item.id === 'owner_dashboard' || item.id === 'permissions';
 
             return (
               <button
@@ -350,9 +398,13 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
                   setActiveTab(item.id);
                   setMobileMenuOpen(false);
                 }}
-                className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl text-xs font-semibold transition ${
+                className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
                   isActive
-                    ? 'bg-blue-600 text-white'
+                    ? isOwnerTab
+                      ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-white font-bold'
+                      : 'bg-blue-600 text-white font-bold'
+                    : isOwnerTab
+                    ? 'text-amber-300 hover:text-white hover:bg-amber-950/40 border border-amber-800/30'
                     : 'text-slate-300 hover:text-white hover:bg-slate-800'
                 }`}
               >
@@ -362,12 +414,26 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
                 </div>
                 {item.badge !== undefined && (
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-slate-950">
-                    {item.badge} belum lunas
+                    {item.badge}
                   </span>
                 )}
               </button>
             );
           })}
+
+          <div className="pt-2 border-t border-slate-800">
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                logout();
+              }}
+              className="w-full flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-xs font-semibold text-rose-400 hover:bg-rose-950/40 transition"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Keluar / Kunci Aplikasi ({currentUser?.name || 'Sesi'})</span>
+            </button>
+          </div>
         </div>
       )}
     </header>

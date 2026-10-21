@@ -96,6 +96,67 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               <Store className="w-4 h-4 text-blue-400" /> Profil Toko & Konter
             </h4>
 
+            {/* Logo Toko */}
+            <div className="p-3.5 bg-slate-950 rounded-2xl border border-slate-800 space-y-2.5">
+              <label className="text-slate-300 font-semibold block text-xs">
+                Logo Konter / Toko Sendiri:
+              </label>
+              <div className="flex items-center gap-3.5">
+                <div className="w-14 h-14 rounded-2xl bg-black flex items-center justify-center text-white shrink-0 overflow-hidden border border-slate-700 shadow-md">
+                  <img
+                    src={form.logoUrl || '/logo_nk.jpg'}
+                    alt="Logo Toko"
+                    className="w-full h-full object-contain p-0.5"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).src = '/assets/aistudio/logo_nk_960b32b2.jpg';
+                    }}
+                  />
+                </div>
+                <div className="flex-1 space-y-1.5">
+                  <div className="flex gap-2">
+                    <label className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs cursor-pointer flex items-center gap-1.5 transition shadow-sm">
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>{form.logoUrl ? 'Ganti Logo' : 'Unggah Logo Toko'}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            if (file.size > 2 * 1024 * 1024) {
+                              alert('Ukuran gambar maksimal 2MB.');
+                              return;
+                            }
+                            const reader = new FileReader();
+                            reader.onload = (ev) => {
+                              const base64 = ev.target?.result as string;
+                              if (base64) {
+                                setForm({ ...form, logoUrl: base64 });
+                              }
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                        className="hidden"
+                      />
+                    </label>
+                    {form.logoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => setForm({ ...form, logoUrl: undefined })}
+                        className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-900/40 text-slate-400 hover:text-rose-300 text-xs transition"
+                      >
+                        Hapus Logo
+                      </button>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-slate-500 block">
+                    Pilih file gambar PNG, JPG, atau WEBP dari perangkat Anda. Logo akan langsung tampil di pojok kiri atas dan struk belanja.
+                  </span>
+                </div>
+              </div>
+            </div>
+
             <div>
               <label className="text-slate-400 block mb-1">Nama Konter / Toko (Dicetak di Struk):</label>
               <input
@@ -326,14 +387,47 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   <div className="flex gap-1.5">
                     <button
                       type="button"
-                      onClick={() => setForm({ ...form, ownerPin: '1234' })}
-                      className="text-[10px] text-slate-400 hover:text-white bg-slate-800 px-2 py-0.5 rounded transition"
-                      title="Kembalikan ke PIN default 1234"
+                      onClick={() => {
+                        if (confirm('Kembalikan PIN pemilik ke PIN standar bawaan sistem?')) {
+                          setForm({ ...form, ownerPin: '1234' });
+                        }
+                      }}
+                      className="text-[10px] text-slate-400 hover:text-white bg-slate-800 px-2.5 py-0.5 rounded transition"
+                      title="Kembalikan ke PIN standar"
                     >
-                      Reset 1234
+                      Reset Standar
                     </button>
                   </div>
                 </div>
+              </div>
+
+              {/* PIN Staf / Kasir */}
+              <div className="pt-3 border-t border-slate-800/80 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-slate-300 font-semibold block text-xs">
+                    PIN Staf / Kasir (Untuk Login Kasir):
+                  </label>
+                  {form.staffPin && (
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, staffPin: '' })}
+                      className="text-[10px] text-slate-400 hover:text-rose-400 transition"
+                    >
+                      Hapus PIN (Login Tanpa PIN)
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  maxLength={6}
+                  value={form.staffPin || ''}
+                  onChange={(e) => setForm({ ...form, staffPin: e.target.value.replace(/\D/g, '') })}
+                  placeholder="Contoh: 0000 (Kosongkan jika staf boleh login tanpa PIN)"
+                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-mono font-bold tracking-widest text-sm focus:outline-none focus:border-blue-500"
+                />
+                <span className="text-[10px] text-slate-500 block">
+                  Jika diisi (4 - 6 angka), kasir wajib memasukkan PIN ini untuk login. Jika dikosongkan, staf/kasir bisa login langsung tanpa PIN.
+                </span>
               </div>
             </div>
 

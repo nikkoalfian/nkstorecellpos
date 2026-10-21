@@ -167,13 +167,9 @@ export const PinModal: React.FC = () => {
           </button>
         </div>
 
-        {/* Hint text */}
+        {/* Security badge */}
         <div className="pt-2 border-t border-slate-800 text-[11px] text-slate-500 flex items-center justify-center gap-1.5">
-          {settings.ownerPin && settings.ownerPin !== '1234' ? (
-            <span>Format PIN: <strong className="text-amber-400 font-mono font-bold">{targetLength} Digit</strong> Terpasang</span>
-          ) : (
-            <span>PIN bawaan default: <strong className="text-slate-400 font-mono">1234</strong></span>
-          )}
+          <span>Format PIN Keamanan: <strong className="text-amber-400 font-mono font-bold">{targetLength} Digit</strong></span>
         </div>
       </div>
     </div>

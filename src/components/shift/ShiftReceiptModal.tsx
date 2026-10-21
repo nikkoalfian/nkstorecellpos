@@ -169,6 +169,16 @@ _Laporan rekap resmi ${settings.storeName}_`;
           >
             {/* Header */}
             <div className="text-center pb-3 border-b border-dashed border-slate-400">
+              <div className="flex justify-center mb-1.5">
+                <img
+                  src={settings.logoUrl || '/logo_nk.jpg'}
+                  alt={settings.storeName}
+                  className="w-12 h-12 object-contain rounded-full"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).src = '/assets/aistudio/logo_nk_960b32b2.jpg';
+                  }}
+                />
+              </div>
               <h2 className="font-bold text-sm tracking-wider uppercase text-slate-900">
                 {settings.storeName}
               </h2>

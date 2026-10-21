@@ -11,6 +11,8 @@ import {
   ServerShiftItem,
   ShiftExpense,
   StaffPermissions,
+  AuthUser,
+  StaffAccount,
 } from '../types';
 import {
   INITIAL_SETTINGS,
@@ -21,6 +23,7 @@ import {
   INITIAL_KASBON,
   INITIAL_SHIFTS,
   DEFAULT_STAFF_PERMISSIONS,
+  DEFAULT_STAFF_ACCOUNTS,
 } from '../data/initialData';
 import confetti from 'canvas-confetti';
 
@@ -95,6 +98,7 @@ interface AppContextType {
   unlockOwner: (pin: string) => boolean;
   lockOwner: () => void;
   updateOwnerPin: (newPin: string) => void;
+  updateStaffPin: (newPin: string) => void;
   verifyOwnerPin: (pin: string) => boolean;
   viewMode: 'staff' | 'owner';
   setViewMode: (mode: 'staff' | 'owner') => void;
@@ -110,6 +114,19 @@ interface AppContextType {
   };
   requestOwnerPin: (title: string, onSuccess: () => void, description?: string) => void;
   closePinModal: () => void;
+
+  // Web App Authentication Gate & Session
+  isAuthenticated: boolean;
+  currentUser: AuthUser | null;
+  loginAsOwner: (pin: string, remember?: boolean) => { success: boolean; error?: string };
+  loginAsStaff: (username: string, pin: string, remember?: boolean) => { success: boolean; error?: string };
+  logout: () => void;
+
+  // Staff Login Accounts Management (Owner Controlled)
+  staffAccounts: StaffAccount[];
+  addStaffAccount: (accountData: Omit<StaffAccount, 'id' | 'createdAt'>) => void;
+  updateStaffAccount: (id: string, updates: Partial<StaffAccount>) => void;
+  deleteStaffAccount: (id: string) => void;
 
   // Backup & Reset
   exportDataJson: () => void;
@@ -127,6 +144,7 @@ const STORAGE_KEYS = {
   TRANSACTIONS: 'nkstorecell_transactions_v2',
   KASBON: 'nkstorecell_kasbon_v2',
   SHIFTS: 'nkstorecell_shifts_v2',
+  AUTH_SESSION: 'nkstorecell_auth_session_v2',
 };
 
 // Clean legacy demo & test keys from all previous versions
@@ -163,8 +181,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return {
           ...INITIAL_SETTINGS,
           ...parsed,
+          logoUrl: parsed.logoUrl || INITIAL_SETTINGS.logoUrl || '/logo_nk.jpg',
           ownerPin: parsed.ownerPin || '1234',
           enablePinProtection: parsed.enablePinProtection !== undefined ? parsed.enablePinProtection : true,
+          staffAccounts:
+            parsed.staffAccounts && Array.isArray(parsed.staffAccounts) && parsed.staffAccounts.length > 0
+              ? parsed.staffAccounts
+              : DEFAULT_STAFF_ACCOUNTS,
           staffPermissions: {
             ...DEFAULT_STAFF_PERMISSIONS,
             ...(parsed.staffPermissions || {}),
@@ -252,9 +275,164 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setViewMode('staff');
   };
 
+  // Web App Authentication Gate & Session
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
+    try {
+      const local = localStorage.getItem(STORAGE_KEYS.AUTH_SESSION);
+      if (local) return JSON.parse(local);
+      const sess = sessionStorage.getItem(STORAGE_KEYS.AUTH_SESSION);
+      if (sess) return JSON.parse(sess);
+    } catch (e) {
+      console.error('Failed to parse auth session', e);
+    }
+    return null;
+  });
+
+  const isAuthenticated = !!currentUser;
+
+  // Sync mode if already authenticated on initial load
+  useEffect(() => {
+    if (currentUser) {
+      if (currentUser.role === 'owner') {
+        setIsOwnerUnlocked(true);
+        setViewMode('owner');
+      } else {
+        setIsOwnerUnlocked(false);
+        setViewMode('staff');
+      }
+    }
+  }, [currentUser]);
+
+  const loginAsOwner = (pin: string, remember: boolean = true): { success: boolean; error?: string } => {
+    const clean = pin.trim();
+    if (clean === getOwnerPin()) {
+      const user: AuthUser = {
+        role: 'owner',
+        name: settings.ownerName || 'Nikko Alfian (Owner)',
+        loginAt: new Date().toISOString(),
+      };
+      setCurrentUser(user);
+      setIsOwnerUnlocked(true);
+      setViewMode('owner');
+      try {
+        const serialized = JSON.stringify(user);
+        if (remember) {
+          localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, serialized);
+        } else {
+          sessionStorage.setItem(STORAGE_KEYS.AUTH_SESSION, serialized);
+        }
+      } catch (err) {
+        console.error('Storage error', err);
+      }
+      return { success: true };
+    }
+    return { success: false, error: 'PIN Pemilik tidak tepat! Silakan coba lagi.' };
+  };
+
+  // Staff Accounts & Login Validation
+  const staffAccounts: StaffAccount[] = (settings.staffAccounts && settings.staffAccounts.length > 0)
+    ? settings.staffAccounts
+    : DEFAULT_STAFF_ACCOUNTS;
+
+  const addStaffAccount = (accountData: Omit<StaffAccount, 'id' | 'createdAt'>) => {
+    const newAccount: StaffAccount = {
+      ...accountData,
+      id: `staff-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+    };
+    setSettings((prev) => ({
+      ...prev,
+      staffAccounts: [...(prev.staffAccounts && prev.staffAccounts.length > 0 ? prev.staffAccounts : DEFAULT_STAFF_ACCOUNTS), newAccount],
+    }));
+  };
+
+  const updateStaffAccount = (id: string, updates: Partial<StaffAccount>) => {
+    setSettings((prev) => ({
+      ...prev,
+      staffAccounts: (prev.staffAccounts && prev.staffAccounts.length > 0 ? prev.staffAccounts : DEFAULT_STAFF_ACCOUNTS).map((acc) =>
+        acc.id === id ? { ...acc, ...updates } : acc
+      ),
+    }));
+  };
+
+  const deleteStaffAccount = (id: string) => {
+    setSettings((prev) => ({
+      ...prev,
+      staffAccounts: (prev.staffAccounts && prev.staffAccounts.length > 0 ? prev.staffAccounts : DEFAULT_STAFF_ACCOUNTS).filter((acc) => acc.id !== id),
+    }));
+  };
+
+  const loginAsStaff = (usernameInput: string, pinInput: string = '', remember: boolean = true): { success: boolean; error?: string } => {
+    const cleanUser = usernameInput.trim().toLowerCase();
+    if (!cleanUser) {
+      return { success: false, error: 'Silakan masukkan username kasir.' };
+    }
+
+    const accounts = (settings.staffAccounts && settings.staffAccounts.length > 0)
+      ? settings.staffAccounts
+      : DEFAULT_STAFF_ACCOUNTS;
+
+    // Search by username or name
+    const account = accounts.find(
+      (a) => (a.username.trim().toLowerCase() === cleanUser || a.name.trim().toLowerCase() === cleanUser) && a.isActive
+    );
+
+    if (!account) {
+      return {
+        success: false,
+        error: `Akun kasir dengan username "${usernameInput}" tidak ditemukan atau sedang nonaktif. Hubungi Pemilik.`,
+      };
+    }
+
+    const accountPin = (account.pin || '').trim();
+    const inputPin = (pinInput || '').trim();
+
+    // If account has a PIN, it must match account pin or master owner PIN
+    if (accountPin && inputPin !== accountPin && inputPin !== getOwnerPin()) {
+      return { success: false, error: 'PIN Staf/Kasir tidak tepat! Silakan coba lagi.' };
+    }
+
+    const user: AuthUser = {
+      role: 'staff',
+      name: account.name,
+      username: account.username,
+      loginAt: new Date().toISOString(),
+    };
+
+    setCurrentUser(user);
+    setIsOwnerUnlocked(false);
+    setViewMode('staff');
+
+    try {
+      const serialized = JSON.stringify(user);
+      if (remember) {
+        localStorage.setItem(STORAGE_KEYS.AUTH_SESSION, serialized);
+      } else {
+        sessionStorage.setItem(STORAGE_KEYS.AUTH_SESSION, serialized);
+      }
+    } catch (err) {
+      console.error('Storage error', err);
+    }
+    return { success: true };
+  };
+
+  const logout = () => {
+    try {
+      localStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
+      sessionStorage.removeItem(STORAGE_KEYS.AUTH_SESSION);
+    } catch (err) {
+      console.error('Storage error', err);
+    }
+    setCurrentUser(null);
+    setIsOwnerUnlocked(false);
+    setViewMode('staff');
+  };
+
   const switchViewMode = (targetMode: 'staff' | 'owner') => {
     if (targetMode === 'owner') {
-      if (isOwnerUnlocked) {
+      // If user logged in as owner, allow instant switch without re-prompting PIN
+      if (isOwnerUnlocked || currentUser?.role === 'owner') {
+        setIsOwnerUnlocked(true);
         setViewMode('owner');
       } else {
         requestOwnerPin(
@@ -263,7 +441,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             setIsOwnerUnlocked(true);
             setViewMode('owner');
           },
-          'Masukkan 4-digit PIN Pemilik untuk membuka seluruh dashboard dan pengaturan hak akses kasir'
+          'Masukkan PIN Pemilik untuk membuka seluruh dashboard dan pengaturan toko'
         );
       }
     } else {
@@ -303,6 +481,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSettings((prev) => ({
       ...prev,
       ownerPin: newPin,
+    }));
+  };
+
+  const updateStaffPin = (newPin: string) => {
+    setSettings((prev) => ({
+      ...prev,
+      staffPin: newPin,
     }));
   };
 
@@ -997,6 +1182,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         unlockOwner,
         lockOwner,
         updateOwnerPin,
+        updateStaffPin,
         verifyOwnerPin,
         viewMode,
         setViewMode,
@@ -1007,6 +1193,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         pinModal,
         requestOwnerPin,
         closePinModal,
+        isAuthenticated,
+        currentUser,
+        loginAsOwner,
+        loginAsStaff,
+        logout,
         exportDataJson,
         importDataJson,
         resetAllData,
