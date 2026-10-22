@@ -180,14 +180,14 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
             <div
               onClick={onOpenSettings}
               title="Klik untuk mengubah nama atau logo toko di Pengaturan"
-              className="w-10 h-10 rounded-full bg-slate-950 flex items-center justify-center text-white shadow-lg shadow-black/40 shrink-0 overflow-hidden border border-slate-700/60 cursor-pointer hover:scale-105 transition active:scale-95 group"
+              className="w-10 h-10 rounded-2xl bg-black flex items-center justify-center text-white shadow-lg shadow-black/40 shrink-0 overflow-hidden border border-slate-700/60 cursor-pointer hover:scale-105 transition active:scale-95 group"
             >
               <img
-                src={settings.logoUrl || '/assets/aistudio/logo_nk_store_804aa741.png'}
+                src={settings.logoUrl || '/logo_nk.jpg'}
                 alt={settings.storeName}
-                className="w-full h-full object-cover rounded-full"
+                className="w-full h-full object-contain"
                 onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src = '/assets/aistudio/logo_nk_store_804aa741.png';
+                  (e.currentTarget as HTMLImageElement).src = '/assets/aistudio/logo_nk_960b32b2.jpg';
                 }}
               />
             </div>

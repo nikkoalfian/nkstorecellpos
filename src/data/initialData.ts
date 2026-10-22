@@ -50,7 +50,7 @@ export const DEFAULT_STAFF_PERMISSIONS: StaffPermissions = {
 export const INITIAL_SETTINGS: StoreSettings = {
   storeName: 'NK STORE CELL',
   tagline: 'Solution Payment Digital - Pulsa, Kuota, Aksesoris, Transfer & Tarik Tunai',
-  logoUrl: '/assets/aistudio/logo_nk_store_804aa741.png',
+  logoUrl: '/logo_nk.jpg',
   ownerName: 'Nikko Alfian',
   address: 'Jl. Pemuda No. 88, Blok C (Depan Indomaret)',
   phone: '081298765432',

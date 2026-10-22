@@ -102,13 +102,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 Logo Konter / Toko Sendiri:
               </label>
               <div className="flex items-center gap-3.5">
-                <div className="w-14 h-14 rounded-full bg-slate-950 flex items-center justify-center text-white shrink-0 overflow-hidden border border-slate-700 shadow-md">
+                <div className="w-14 h-14 rounded-2xl bg-black flex items-center justify-center text-white shrink-0 overflow-hidden border border-slate-700 shadow-md">
                   <img
-                    src={form.logoUrl || '/assets/aistudio/logo_nk_store_804aa741.png'}
+                    src={form.logoUrl || '/logo_nk.jpg'}
                     alt="Logo Toko"
-                    className="w-full h-full object-cover rounded-full"
+                    className="w-full h-full object-contain p-0.5"
                     onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).src = '/assets/aistudio/logo_nk_store_804aa741.png';
+                      (e.currentTarget as HTMLImageElement).src = '/assets/aistudio/logo_nk_960b32b2.jpg';
                     }}
                   />
                 </div>
