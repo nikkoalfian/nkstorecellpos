@@ -17,6 +17,8 @@ import {
   Lock,
   Eye,
   EyeOff,
+  Package,
+  AlertTriangle,
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -102,13 +104,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 Logo Konter / Toko Sendiri:
               </label>
               <div className="flex items-center gap-3.5">
-                <div className="w-14 h-14 rounded-2xl bg-black flex items-center justify-center text-white shrink-0 overflow-hidden border border-slate-700 shadow-md">
+                <div className="w-14 h-14 rounded-full bg-slate-950 flex items-center justify-center text-white shrink-0 overflow-hidden border border-slate-700 shadow-md">
                   <img
-                    src={form.logoUrl || '/logo_nk.jpg'}
+                    src={form.logoUrl || '/assets/aistudio/logo_nk_store_804aa741.png'}
                     alt="Logo Toko"
-                    className="w-full h-full object-contain p-0.5"
+                    className="w-full h-full object-cover rounded-full"
                     onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).src = '/assets/aistudio/logo_nk_960b32b2.jpg';
+                      (e.currentTarget as HTMLImageElement).src = '/assets/aistudio/logo_nk_store_804aa741.png';
                     }}
                   />
                 </div>
@@ -266,6 +268,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   onChange={(e) => setForm({ ...form, defaultTarikTunaiAdminFee: Number(e.target.value) || 0 })}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 font-bold font-mono text-emerald-400 focus:outline-none focus:border-blue-500"
                 />
+              </div>
+            </div>
+          </div>
+
+          {/* Pengaturan Batas Minimal Stok Inventory */}
+          <div className="space-y-3 pt-3 border-t border-slate-800">
+            <h4 className="text-slate-300 font-bold uppercase tracking-wider flex items-center gap-2">
+              <Package className="w-4 h-4 text-purple-400" /> Peringatan Stok Minimal Inventory / Gudang
+            </h4>
+            <p className="text-[11px] text-slate-500">
+              Tentukan jumlah batas minimal stok produk. Jika sisa stok produk mencapai atau di bawah angka ini, badge notifikasi merah akan otomatis aktif di tab Inventory dan Dashboard Toko.
+            </p>
+
+            <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between gap-3">
+              <div>
+                <label className="text-slate-300 font-semibold block text-xs">
+                  Batas Minimal Stok Standar (Pcs):
+                </label>
+                <span className="text-[10px] text-slate-500 block">
+                  Peringatan berbunyi/aktif saat stok ≤ nilai ini (default 5 pcs)
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={500}
+                  value={form.defaultMinStockAlert ?? 5}
+                  onChange={(e) => setForm({ ...form, defaultMinStockAlert: Math.max(1, Number(e.target.value) || 1) })}
+                  className="w-24 bg-slate-900 border border-slate-700 rounded-xl px-3 py-1.5 font-bold font-mono text-purple-400 text-sm text-center focus:outline-none focus:border-purple-500"
+                />
+                <span className="text-xs text-slate-400 font-bold">Pcs</span>
               </div>
             </div>
           </div>

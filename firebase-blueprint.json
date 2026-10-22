@@ -1,0 +1,149 @@
+{
+  "entities": {
+    "StoreSettings": {
+      "title": "StoreSettings",
+      "description": "Store configuration, credentials, staff accounts, and role permissions",
+      "type": "object",
+      "properties": {
+        "storeName": { "type": "string" },
+        "tagline": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "receiptFooterMessage": { "type": "string" },
+        "defaultTransferAdminFee": { "type": "number" },
+        "defaultTarikTunaiAdminFee": { "type": "number" },
+        "printerPaperWidth": { "type": "string" },
+        "serverNames": { "type": "array" },
+        "ownerPin": { "type": "string" },
+        "staffPin": { "type": "string" },
+        "staffAccounts": { "type": "array" },
+        "enablePinProtection": { "type": "boolean" },
+        "requireLoginOnStart": { "type": "boolean" },
+        "staffPermissions": { "type": "object" }
+      },
+      "required": ["storeName", "ownerName"]
+    },
+    "AccountBalance": {
+      "title": "AccountBalance",
+      "description": "Account and server cash balances",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "balance": { "type": "number" },
+        "description": { "type": "string" },
+        "color": { "type": "string" }
+      },
+      "required": ["name", "type", "balance"]
+    },
+    "AccessoryItem": {
+      "title": "AccessoryItem",
+      "description": "Accessory item in inventory",
+      "type": "object",
+      "properties": {
+        "sku": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "stock": { "type": "number" },
+        "minStock": { "type": "number" },
+        "priceCost": { "type": "number" },
+        "priceSell": { "type": "number" }
+      },
+      "required": ["name", "stock", "priceCost", "priceSell"]
+    },
+    "PulsaProduct": {
+      "title": "PulsaProduct",
+      "description": "Pulsa, data package, or token catalog item",
+      "type": "object",
+      "properties": {
+        "category": { "type": "string" },
+        "operator": { "type": "string" },
+        "nominal": { "type": "number" },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "priceCost": { "type": "number" },
+        "priceSell": { "type": "number" }
+      },
+      "required": ["category", "nominal", "label", "priceSell"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "POS or service transaction record",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string" },
+        "category": { "type": "string" },
+        "totalAmount": { "type": "number" },
+        "adminFee": { "type": "number" },
+        "profit": { "type": "number" },
+        "cashierName": { "type": "string" },
+        "status": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["type", "totalAmount", "cashierName"]
+    },
+    "KasbonRecord": {
+      "title": "KasbonRecord",
+      "description": "Customer credit / kasbon record",
+      "type": "object",
+      "properties": {
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "amount": { "type": "number" },
+        "notes": { "type": "string" },
+        "date": { "type": "string" },
+        "isPaid": { "type": "boolean" },
+        "paidDate": { "type": "string" }
+      },
+      "required": ["customerName", "amount", "date", "isPaid"]
+    },
+    "ShiftRecord": {
+      "title": "ShiftRecord",
+      "description": "4 server cashier shift work session",
+      "type": "object",
+      "properties": {
+        "shiftNumber": { "type": "number" },
+        "cashierName": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "status": { "type": "string" },
+        "initialCashDrawer": { "type": "number" },
+        "actualFinalCashDrawer": { "type": "number" },
+        "netProfit": { "type": "number" }
+      },
+      "required": ["shiftNumber", "cashierName", "startTime", "status"]
+    }
+  },
+  "firestore": {
+    "/stores/{storeId}": {
+      "schema": "StoreSettings",
+      "description": "Store configuration and accounts metadata"
+    },
+    "/accounts/{accountId}": {
+      "schema": "AccountBalance",
+      "description": "Cash and server balances"
+    },
+    "/accessories/{accessoryId}": {
+      "schema": "AccessoryItem",
+      "description": "Accessory inventory items"
+    },
+    "/pulsaProducts/{productId}": {
+      "schema": "PulsaProduct",
+      "description": "Pulsa catalog items"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Financial and POS transactions"
+    },
+    "/kasbon/{kasbonId}": {
+      "schema": "KasbonRecord",
+      "description": "Customer credit records"
+    },
+    "/shifts/{shiftId}": {
+      "schema": "ShiftRecord",
+      "description": "Cashier shifts"
+    }
+  }
+}

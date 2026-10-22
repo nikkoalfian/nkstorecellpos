@@ -1,0 +1,53 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    match /stores/{storeId} {
+      allow read: if true;
+      allow write: if isSignedIn() && isValidId(storeId);
+    }
+
+    match /accounts/{accountId} {
+      allow read: if true;
+      allow write: if isSignedIn() && isValidId(accountId);
+    }
+
+    match /accessories/{accessoryId} {
+      allow read: if true;
+      allow write: if isSignedIn() && isValidId(accessoryId);
+    }
+
+    match /pulsaProducts/{productId} {
+      allow read: if true;
+      allow write: if isSignedIn() && isValidId(productId);
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if true;
+      allow write: if isSignedIn() && isValidId(transactionId);
+    }
+
+    match /kasbon/{kasbonId} {
+      allow read: if true;
+      allow write: if isSignedIn() && isValidId(kasbonId);
+    }
+
+    match /shifts/{shiftId} {
+      allow read: if true;
+      allow write: if isSignedIn() && isValidId(shiftId);
+    }
+
+    // Default deny for unmapped documents
+    match /{document=**} {
+      allow read, write: if isSignedIn();
+    }
+  }
+}

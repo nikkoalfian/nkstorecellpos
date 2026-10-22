@@ -50,13 +50,14 @@ export const DEFAULT_STAFF_PERMISSIONS: StaffPermissions = {
 export const INITIAL_SETTINGS: StoreSettings = {
   storeName: 'NK STORE CELL',
   tagline: 'Solution Payment Digital - Pulsa, Kuota, Aksesoris, Transfer & Tarik Tunai',
-  logoUrl: '/logo_nk.jpg',
+  logoUrl: '/assets/aistudio/logo_nk_store_804aa741.png',
   ownerName: 'Nikko Alfian',
   address: 'Jl. Pemuda No. 88, Blok C (Depan Indomaret)',
   phone: '081298765432',
   receiptFooterMessage: 'Terima kasih atas kepercayaannya. Transaksi cepat, aman & terpercaya!',
   defaultTransferAdminFee: 5000,
   defaultTarikTunaiAdminFee: 5000,
+  defaultMinStockAlert: 5,
   printerPaperWidth: '58mm',
   serverNames: [
     'Server 1 - Digipos (Telkomsel)',

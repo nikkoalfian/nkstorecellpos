@@ -44,6 +44,7 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenSettings }) => {
   const {
     settings,
+    accessories,
     accounts,
     kasbonList,
     activeShift,
@@ -55,6 +56,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
     hasPermission,
     logout,
     currentUser,
+    isCloudSynced,
   } = useApp();
   const [currentTime, setCurrentTime] = useState<string>('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -85,6 +87,13 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
   const mainBankAcc = accounts.find((a) => a.type === 'bank');
   const unpaidKasbonCount = kasbonList.filter((k) => !k.isPaid).length;
 
+  // Low stock inventory alert
+  const minStockLimit = settings.defaultMinStockAlert ?? 5;
+  const lowStockCount = accessories.filter((a) => {
+    const threshold = typeof a.minStock === 'number' && a.minStock > 0 ? a.minStock : minStockLimit;
+    return a.stock <= threshold;
+  }).length;
+
   // Build navItems dynamically depending on viewMode (Owner vs Staff)
   const isOwner = viewMode === 'owner' && isOwnerUnlocked;
 
@@ -113,7 +122,14 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
         { id: 'transfer' as ActiveTab, label: 'Transfer Uang', icon: Send, color: 'text-indigo-400' },
         { id: 'tarik_tunai' as ActiveTab, label: 'Tarik Tunai', icon: Banknote, color: 'text-emerald-400' },
         { id: 'aksesoris' as ActiveTab, label: 'Aksesoris HP', icon: ShoppingBag, color: 'text-purple-400' },
-        { id: 'inventory' as ActiveTab, label: 'Gudang & Stok', icon: Building2, color: 'text-purple-400' },
+        {
+          id: 'inventory' as ActiveTab,
+          label: 'Gudang & Stok',
+          icon: Building2,
+          color: 'text-purple-400',
+          badge: lowStockCount > 0 ? `${lowStockCount} Menipis` : undefined,
+          badgeColor: lowStockCount > 0 ? 'bg-rose-500 text-white animate-pulse shadow-sm' : undefined,
+        },
         { id: 'finance' as ActiveTab, label: 'Buku Kas & Bank', icon: Wallet, color: 'text-teal-400' },
         {
           id: 'kasbon' as ActiveTab,
@@ -148,7 +164,16 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
           ? [{ id: 'aksesoris' as ActiveTab, label: 'Kasir Aksesoris', icon: ShoppingBag, color: 'text-purple-400' }]
           : []),
         ...(hasPermission('canAccessInventory')
-          ? [{ id: 'inventory' as ActiveTab, label: 'Gudang Stok', icon: Building2, color: 'text-purple-400' }]
+          ? [
+              {
+                id: 'inventory' as ActiveTab,
+                label: 'Gudang Stok',
+                icon: Building2,
+                color: 'text-purple-400',
+                badge: lowStockCount > 0 ? `${lowStockCount} Menipis` : undefined,
+                badgeColor: lowStockCount > 0 ? 'bg-rose-500 text-white animate-pulse shadow-sm' : undefined,
+              },
+            ]
           : []),
         ...(hasPermission('canAccessKasbon')
           ? [
@@ -179,14 +204,14 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
             <div
               onClick={onOpenSettings}
               title="Klik untuk mengubah nama atau logo toko di Pengaturan"
-              className="w-10 h-10 rounded-2xl bg-black flex items-center justify-center text-white shadow-lg shadow-black/40 shrink-0 overflow-hidden border border-slate-700/60 cursor-pointer hover:scale-105 transition active:scale-95 group"
+              className="w-10 h-10 rounded-full bg-slate-950 flex items-center justify-center text-white shadow-lg shadow-black/40 shrink-0 overflow-hidden border border-slate-700/60 cursor-pointer hover:scale-105 transition active:scale-95 group"
             >
               <img
-                src={settings.logoUrl || '/logo_nk.jpg'}
+                src={settings.logoUrl || '/assets/aistudio/logo_nk_store_804aa741.png'}
                 alt={settings.storeName}
-                className="w-full h-full object-contain"
+                className="w-full h-full object-cover rounded-full"
                 onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src = '/assets/aistudio/logo_nk_960b32b2.jpg';
+                  (e.currentTarget as HTMLImageElement).src = '/assets/aistudio/logo_nk_store_804aa741.png';
                 }}
               />
             </div>
@@ -282,6 +307,8 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
             </button>
 
             <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 text-[11px] font-mono text-slate-300 border border-slate-700/60">
+              <span className={`w-2 h-2 rounded-full ${isCloudSynced ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+              <span className="text-[10px] text-slate-300 font-sans hidden xl:inline">Cloud:</span>
               <Clock className="w-3.5 h-3.5 text-blue-400" />
               <span>{currentTime}</span>
             </div>
@@ -369,8 +396,12 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
                 <span>{item.label}</span>
                 {item.badge !== undefined && (
                   <span
-                    className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                      isActive ? 'bg-white text-slate-950' : 'bg-amber-500 text-slate-950'
+                    className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                      item.badgeColor
+                        ? item.badgeColor
+                        : isActive
+                        ? 'bg-white text-slate-950'
+                        : 'bg-amber-500 text-slate-950'
                     }`}
                   >
                     {item.badge}
@@ -401,11 +432,11 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
                 className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
                   isActive
                     ? isOwnerTab
-                      ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-white font-bold'
-                      : 'bg-blue-600 text-white font-bold'
-                    : isOwnerTab
-                    ? 'text-amber-300 hover:text-white hover:bg-amber-950/40 border border-amber-800/30'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                    ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-white font-bold'
+                    : 'bg-blue-600 text-white font-bold'
+                  : isOwnerTab
+                  ? 'text-amber-300 hover:text-white hover:bg-amber-950/40 border border-amber-800/30'
+                  : 'text-slate-300 hover:text-white hover:bg-slate-800'
                 }`}
               >
                 <div className="flex items-center gap-2.5">
@@ -413,7 +444,11 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
                   <span>{item.label}</span>
                 </div>
                 {item.badge !== undefined && (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-slate-950">
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      item.badgeColor ? item.badgeColor : 'bg-amber-500 text-slate-950'
+                    }`}
+                  >
                     {item.badge}
                   </span>
                 )}

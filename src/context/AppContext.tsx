@@ -26,6 +26,14 @@ import {
   DEFAULT_STAFF_ACCOUNTS,
 } from '../data/initialData';
 import confetti from 'canvas-confetti';
+import { db } from '../firebase';
+import {
+  doc,
+  setDoc,
+  deleteDoc,
+  onSnapshot,
+  collection,
+} from 'firebase/firestore';
 
 interface OpenShiftParams {
   cashierName: string;
@@ -127,6 +135,9 @@ interface AppContextType {
   addStaffAccount: (accountData: Omit<StaffAccount, 'id' | 'createdAt'>) => void;
   updateStaffAccount: (id: string, updates: Partial<StaffAccount>) => void;
   deleteStaffAccount: (id: string) => void;
+
+  // Cloud Realtime Sync
+  isCloudSynced: boolean;
 
   // Backup & Reset
   exportDataJson: () => void;
@@ -340,26 +351,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `staff-${Date.now()}`,
       createdAt: new Date().toISOString(),
     };
+    const current = settings.staffAccounts && settings.staffAccounts.length > 0 ? settings.staffAccounts : DEFAULT_STAFF_ACCOUNTS;
+    const updated = [...current, newAccount];
     setSettings((prev) => ({
       ...prev,
-      staffAccounts: [...(prev.staffAccounts && prev.staffAccounts.length > 0 ? prev.staffAccounts : DEFAULT_STAFF_ACCOUNTS), newAccount],
+      staffAccounts: updated,
     }));
+    setDoc(doc(db, 'stores', 'main_store'), { staffAccounts: updated }, { merge: true }).catch((err) =>
+      console.warn('Sync add staff account error:', err)
+    );
   };
 
   const updateStaffAccount = (id: string, updates: Partial<StaffAccount>) => {
+    const current = settings.staffAccounts && settings.staffAccounts.length > 0 ? settings.staffAccounts : DEFAULT_STAFF_ACCOUNTS;
+    const updated = current.map((acc) => (acc.id === id ? { ...acc, ...updates } : acc));
     setSettings((prev) => ({
       ...prev,
-      staffAccounts: (prev.staffAccounts && prev.staffAccounts.length > 0 ? prev.staffAccounts : DEFAULT_STAFF_ACCOUNTS).map((acc) =>
-        acc.id === id ? { ...acc, ...updates } : acc
-      ),
+      staffAccounts: updated,
     }));
+    setDoc(doc(db, 'stores', 'main_store'), { staffAccounts: updated }, { merge: true }).catch((err) =>
+      console.warn('Sync update staff account error:', err)
+    );
   };
 
   const deleteStaffAccount = (id: string) => {
+    const current = settings.staffAccounts && settings.staffAccounts.length > 0 ? settings.staffAccounts : DEFAULT_STAFF_ACCOUNTS;
+    const updated = current.filter((acc) => acc.id !== id);
     setSettings((prev) => ({
       ...prev,
-      staffAccounts: (prev.staffAccounts && prev.staffAccounts.length > 0 ? prev.staffAccounts : DEFAULT_STAFF_ACCOUNTS).filter((acc) => acc.id !== id),
+      staffAccounts: updated,
     }));
+    setDoc(doc(db, 'stores', 'main_store'), { staffAccounts: updated }, { merge: true }).catch((err) =>
+      console.warn('Sync delete staff account error:', err)
+    );
   };
 
   const loginAsStaff = (usernameInput: string, pinInput: string = '', remember: boolean = true): { success: boolean; error?: string } => {
@@ -461,13 +485,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateStaffPermissions = (perms: Partial<StaffPermissions>) => {
+    const updated = {
+      ...(settings.staffPermissions || DEFAULT_STAFF_PERMISSIONS),
+      ...perms,
+    };
     setSettings((prev) => ({
       ...prev,
-      staffPermissions: {
-        ...(prev.staffPermissions || DEFAULT_STAFF_PERMISSIONS),
-        ...perms,
-      },
+      staffPermissions: updated,
     }));
+    setDoc(doc(db, 'stores', 'main_store'), { staffPermissions: updated }, { merge: true }).catch((err) =>
+      console.warn('Sync update staff permissions error:', err)
+    );
   };
 
   const resetStaffPermissions = () => {
@@ -475,6 +503,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...prev,
       staffPermissions: DEFAULT_STAFF_PERMISSIONS,
     }));
+    setDoc(doc(db, 'stores', 'main_store'), { staffPermissions: DEFAULT_STAFF_PERMISSIONS }, { merge: true }).catch((err) =>
+      console.warn('Sync reset staff permissions error:', err)
+    );
   };
 
   const updateOwnerPin = (newPin: string) => {
@@ -482,6 +513,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...prev,
       ownerPin: newPin,
     }));
+    setDoc(doc(db, 'stores', 'main_store'), { ownerPin: newPin }, { merge: true }).catch((err) =>
+      console.warn('Sync update owner pin error:', err)
+    );
   };
 
   const updateStaffPin = (newPin: string) => {
@@ -489,6 +523,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...prev,
       staffPin: newPin,
     }));
+    setDoc(doc(db, 'stores', 'main_store'), { staffPin: newPin }, { merge: true }).catch((err) =>
+      console.warn('Sync update staff pin error:', err)
+    );
   };
 
   const requestOwnerPin = (title: string, onSuccess: () => void, description?: string) => {
@@ -508,7 +545,135 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setPinModal((prev) => ({ ...prev, isOpen: false, onSuccess: undefined }));
   };
 
-  // Sync to LocalStorage
+  // Real-time Cloud Sync State with Firestore
+  const [isCloudSynced, setIsCloudSynced] = useState(false);
+
+  // 1. Real-time Firestore Listener for Store Settings (Syncs staff accounts, PINs, and permissions across all devices)
+  useEffect(() => {
+    const unsub = onSnapshot(
+      doc(db, 'stores', 'main_store'),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const cloudData = docSnap.data() as Partial<StoreSettings>;
+          setSettings((prev) => ({
+            ...prev,
+            ...cloudData,
+            staffAccounts:
+              cloudData.staffAccounts && Array.isArray(cloudData.staffAccounts) && cloudData.staffAccounts.length > 0
+                ? cloudData.staffAccounts
+                : prev.staffAccounts,
+            staffPermissions: {
+              ...DEFAULT_STAFF_PERMISSIONS,
+              ...(prev.staffPermissions || {}),
+              ...((cloudData.staffPermissions as Partial<StaffPermissions>) || {}),
+            },
+          }));
+          setIsCloudSynced(true);
+        } else {
+          // Initialize in Firestore on very first run
+          setDoc(doc(db, 'stores', 'main_store'), settings, { merge: true })
+            .then(() => setIsCloudSynced(true))
+            .catch((err) => console.warn('Init store settings in firestore note:', err));
+        }
+      },
+      (error) => {
+        console.warn('Firestore settings listener error:', error);
+      }
+    );
+    return () => unsub();
+  }, []);
+
+  // 2. Real-time Firestore Listener for Accounts
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, 'accounts'),
+      (snap) => {
+        if (!snap.empty) {
+          const cloudAccounts = snap.docs.map((d) => ({ ...d.data(), id: d.id } as AccountBalance));
+          setAccounts(cloudAccounts);
+        } else {
+          INITIAL_ACCOUNTS.forEach((acc) => {
+            setDoc(doc(db, 'accounts', acc.id), acc).catch((err) =>
+              console.warn('Seed account note:', err)
+            );
+          });
+        }
+      },
+      (error) => console.warn('Firestore accounts listener note:', error)
+    );
+    return () => unsub();
+  }, []);
+
+  // 3. Real-time Firestore Listener for Accessories
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, 'accessories'),
+      (snap) => {
+        if (!snap.empty) {
+          const cloudAccessories = snap.docs.map((d) => ({ ...d.data(), id: d.id } as AccessoryItem));
+          setAccessories(cloudAccessories);
+        } else {
+          INITIAL_ACCESSORIES.forEach((item) => {
+            setDoc(doc(db, 'accessories', item.id), item).catch((err) =>
+              console.warn('Seed accessory note:', err)
+            );
+          });
+        }
+      },
+      (error) => console.warn('Firestore accessories listener note:', error)
+    );
+    return () => unsub();
+  }, []);
+
+  // 4. Real-time Firestore Listener for Transactions
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, 'transactions'),
+      (snap) => {
+        if (!snap.empty) {
+          const cloudTrx = snap.docs.map((d) => ({ ...d.data(), id: d.id } as Transaction));
+          cloudTrx.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          setTransactions(cloudTrx);
+        }
+      },
+      (error) => console.warn('Firestore transactions listener note:', error)
+    );
+    return () => unsub();
+  }, []);
+
+  // 5. Real-time Firestore Listener for Kasbon
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, 'kasbon'),
+      (snap) => {
+        if (!snap.empty) {
+          const cloudKasbon = snap.docs.map((d) => ({ ...d.data(), id: d.id } as KasbonRecord));
+          cloudKasbon.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          setKasbonList(cloudKasbon);
+        }
+      },
+      (error) => console.warn('Firestore kasbon listener note:', error)
+    );
+    return () => unsub();
+  }, []);
+
+  // 6. Real-time Firestore Listener for Shifts
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, 'shifts'),
+      (snap) => {
+        if (!snap.empty) {
+          const cloudShifts = snap.docs.map((d) => ({ ...d.data(), id: d.id } as ShiftRecord));
+          cloudShifts.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+          setShifts(cloudShifts);
+        }
+      },
+      (error) => console.warn('Firestore shifts listener note:', error)
+    );
+    return () => unsub();
+  }, []);
+
+  // Sync to LocalStorage (as fast local offline cache)
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
   }, [settings]);
@@ -540,6 +705,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Update Settings
   const updateSettings = (newSettings: Partial<StoreSettings>) => {
     setSettings((prev) => ({ ...prev, ...newSettings }));
+    setDoc(doc(db, 'stores', 'main_store'), newSettings, { merge: true }).catch((err) =>
+      console.warn('Sync updateSettings error:', err)
+    );
   };
 
   // Update account balance
@@ -1202,6 +1370,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addStaffAccount,
         updateStaffAccount,
         deleteStaffAccount,
+        isCloudSynced,
         exportDataJson,
         importDataJson,
         resetAllData,
