@@ -173,7 +173,6 @@ export interface StoreSettings {
   receiptFooterMessage: string;
   defaultTransferAdminFee: number;
   defaultTarikTunaiAdminFee: number;
-  defaultMinStockAlert?: number; // Batas minimal stok produk untuk memicu notifikasi peringatan
   printerPaperWidth: '58mm' | '80mm';
   serverNames: [string, string, string, string]; // Nama 4 server pulsa
   ownerPin?: string; // Default '1234'

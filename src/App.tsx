@@ -23,7 +23,6 @@ import { LoginPage } from './components/auth/LoginPage';
 const MainContent: React.FC = () => {
   const {
     settings,
-    accessories,
     requestOwnerPin,
     viewMode,
     isOwnerUnlocked,
@@ -34,13 +33,6 @@ const MainContent: React.FC = () => {
   } = useApp();
 
   const isOwner = viewMode === 'owner' && isOwnerUnlocked;
-
-  // Low stock inventory alert
-  const minStockLimit = settings.defaultMinStockAlert ?? 5;
-  const lowStockCount = accessories.filter((a) => {
-    const threshold = typeof a.minStock === 'number' && a.minStock > 0 ? a.minStock : minStockLimit;
-    return a.stock <= threshold;
-  }).length;
 
   // Helper to determine first permitted tab for staff
   const getFirstAllowedStaffTab = (): ActiveTab => {
@@ -253,12 +245,7 @@ const MainContent: React.FC = () => {
                 }`}
               >
                 <Package className="w-3.5 h-3.5" />
-                <span>Manajemen Stok & Kulakan</span>
-                {lowStockCount > 0 && (
-                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500 text-white animate-pulse">
-                    {lowStockCount} Menipis
-                  </span>
-                )}
+                Manajemen Stok & Kulakan
                 {!isOwner && !hasPermission('canAccessInventory') && (
                   <Lock className="w-3 h-3 text-amber-400" />
                 )}
@@ -273,134 +260,132 @@ const MainContent: React.FC = () => {
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <div key={activeTab} className="tab-content-enter">
-          {/* Owner Dashboard */}
-          {activeTab === 'owner_dashboard' && (
-            isOwner ? (
-              <OwnerDashboard onNavigateTab={handleSelectTab} onOpenSettings={handleOpenSettings} />
-            ) : (
-              <RestrictedAccessView
-                featureName="Dashboard & Kontrol Pemilik"
-                onGoBack={() => handleSelectTab(getFirstAllowedStaffTab())}
-                onUnlockSuccess={() => {
-                  switchViewMode('owner');
-                  handleSelectTab('owner_dashboard');
-                }}
-              />
-            )
-          )}
+        {/* Owner Dashboard */}
+        {activeTab === 'owner_dashboard' && (
+          isOwner ? (
+            <OwnerDashboard onNavigateTab={handleSelectTab} onOpenSettings={handleOpenSettings} />
+          ) : (
+            <RestrictedAccessView
+              featureName="Dashboard & Kontrol Pemilik"
+              onGoBack={() => handleSelectTab(getFirstAllowedStaffTab())}
+              onUnlockSuccess={() => {
+                switchViewMode('owner');
+                handleSelectTab('owner_dashboard');
+              }}
+            />
+          )
+        )}
 
-          {/* Staff Permissions Management */}
-          {activeTab === 'permissions' && (
-            isOwner ? (
-              <StaffPermissionsManager />
-            ) : (
-              <RestrictedAccessView
-                featureName="Pengaturan Hak Akses Staf"
-                onGoBack={() => handleSelectTab(getFirstAllowedStaffTab())}
-              />
-            )
-          )}
+        {/* Staff Permissions Management */}
+        {activeTab === 'permissions' && (
+          isOwner ? (
+            <StaffPermissionsManager />
+          ) : (
+            <RestrictedAccessView
+              featureName="Pengaturan Hak Akses Staf"
+              onGoBack={() => handleSelectTab(getFirstAllowedStaffTab())}
+            />
+          )
+        )}
 
-          {/* Shift Management */}
-          {activeTab === 'shift' && (
-            hasPermission('canAccessShift') ? (
-              <ShiftManager />
-            ) : (
-              <RestrictedAccessView
-                featureName="Shift & 4 Server"
-                onGoBack={() => handleSelectTab(getFirstAllowedStaffTab())}
-              />
-            )
-          )}
+        {/* Shift Management */}
+        {activeTab === 'shift' && (
+          hasPermission('canAccessShift') ? (
+            <ShiftManager />
+          ) : (
+            <RestrictedAccessView
+              featureName="Shift & 4 Server"
+              onGoBack={() => handleSelectTab(getFirstAllowedStaffTab())}
+            />
+          )
+        )}
 
-          {/* Transfer Uang */}
-          {activeTab === 'transfer' && (
-            hasPermission('canAccessTransfer') ? (
-              <PosTransfer />
-            ) : (
-              <RestrictedAccessView
-                featureName="Transfer Uang"
-                onGoBack={() => handleSelectTab(getFirstAllowedStaffTab())}
-              />
-            )
-          )}
+        {/* Transfer Uang */}
+        {activeTab === 'transfer' && (
+          hasPermission('canAccessTransfer') ? (
+            <PosTransfer />
+          ) : (
+            <RestrictedAccessView
+              featureName="Transfer Uang"
+              onGoBack={() => handleSelectTab(getFirstAllowedStaffTab())}
+            />
+          )
+        )}
 
-          {/* Tarik Tunai */}
-          {activeTab === 'tarik_tunai' && (
-            hasPermission('canAccessTarikTunai') ? (
-              <PosTarikTunai />
-            ) : (
-              <RestrictedAccessView
-                featureName="Tarik Tunai"
-                onGoBack={() => handleSelectTab(getFirstAllowedStaffTab())}
-              />
-            )
-          )}
+        {/* Tarik Tunai */}
+        {activeTab === 'tarik_tunai' && (
+          hasPermission('canAccessTarikTunai') ? (
+            <PosTarikTunai />
+          ) : (
+            <RestrictedAccessView
+              featureName="Tarik Tunai"
+              onGoBack={() => handleSelectTab(getFirstAllowedStaffTab())}
+            />
+          )
+        )}
 
-          {/* Pos Aksesoris */}
-          {activeTab === 'aksesoris' && (
-            hasPermission('canAccessPosAksesoris') ? (
-              <PosAksesoris onGoToInventory={handleGoToInventory} />
-            ) : (
-              <RestrictedAccessView
-                featureName="Kasir Aksesoris"
-                onGoBack={() => handleSelectTab(getFirstAllowedStaffTab())}
-              />
-            )
-          )}
+        {/* Pos Aksesoris */}
+        {activeTab === 'aksesoris' && (
+          hasPermission('canAccessPosAksesoris') ? (
+            <PosAksesoris onGoToInventory={handleGoToInventory} />
+          ) : (
+            <RestrictedAccessView
+              featureName="Kasir Aksesoris"
+              onGoBack={() => handleSelectTab(getFirstAllowedStaffTab())}
+            />
+          )
+        )}
 
-          {/* Inventory Management */}
-          {activeTab === 'inventory' && (
-            hasPermission('canAccessInventory') ? (
-              <InventoryManager />
-            ) : (
-              <RestrictedAccessView
-                featureName="Gudang Stok & Kulakan"
-                description="Akses gudang dan harga modal dibatasi untuk staf. Masukkan PIN Pemilik untuk membuka."
-                onGoBack={() => handleSelectTab(getFirstAllowedStaffTab())}
-              />
-            )
-          )}
+        {/* Inventory Management */}
+        {activeTab === 'inventory' && (
+          hasPermission('canAccessInventory') ? (
+            <InventoryManager />
+          ) : (
+            <RestrictedAccessView
+              featureName="Gudang Stok & Kulakan"
+              description="Akses gudang dan harga modal dibatasi untuk staf. Masukkan PIN Pemilik untuk membuka."
+              onGoBack={() => handleSelectTab(getFirstAllowedStaffTab())}
+            />
+          )
+        )}
 
-          {/* Finance Manager */}
-          {activeTab === 'finance' && (
-            hasPermission('canAccessFinance') ? (
-              <FinanceManager />
-            ) : (
-              <RestrictedAccessView
-                featureName="Buku Kas & Saldo Rekening"
-                description="Informasi mutasi saldo rekening dan penarikan modal toko bersifat rahasia pemilik."
-                onGoBack={() => handleSelectTab(getFirstAllowedStaffTab())}
-              />
-            )
-          )}
+        {/* Finance Manager */}
+        {activeTab === 'finance' && (
+          hasPermission('canAccessFinance') ? (
+            <FinanceManager />
+          ) : (
+            <RestrictedAccessView
+              featureName="Buku Kas & Saldo Rekening"
+              description="Informasi mutasi saldo rekening dan penarikan modal toko bersifat rahasia pemilik."
+              onGoBack={() => handleSelectTab(getFirstAllowedStaffTab())}
+            />
+          )
+        )}
 
-          {/* Kasbon Manager */}
-          {activeTab === 'kasbon' && (
-            hasPermission('canAccessKasbon') ? (
-              <KasbonManager />
-            ) : (
-              <RestrictedAccessView
-                featureName="Catatan Kasbon Pelanggan"
-                onGoBack={() => handleSelectTab(getFirstAllowedStaffTab())}
-              />
-            )
-          )}
+        {/* Kasbon Manager */}
+        {activeTab === 'kasbon' && (
+          hasPermission('canAccessKasbon') ? (
+            <KasbonManager />
+          ) : (
+            <RestrictedAccessView
+              featureName="Catatan Kasbon Pelanggan"
+              onGoBack={() => handleSelectTab(getFirstAllowedStaffTab())}
+            />
+          )
+        )}
 
-          {/* Reports View */}
-          {activeTab === 'reports' && (
-            hasPermission('canAccessReports') ? (
-              <ReportsView />
-            ) : (
-              <RestrictedAccessView
-                featureName="Laporan Laba Rugi Toko"
-                description="Laporan keuntungan toko bersifat rahasia pemilik. Masukkan PIN Pemilik untuk melihat laporan."
-                onGoBack={() => handleSelectTab(getFirstAllowedStaffTab())}
-              />
-            )
-          )}
-        </div>
+        {/* Reports View */}
+        {activeTab === 'reports' && (
+          hasPermission('canAccessReports') ? (
+            <ReportsView />
+          ) : (
+            <RestrictedAccessView
+              featureName="Laporan Laba Rugi Toko"
+              description="Laporan keuntungan toko bersifat rahasia pemilik. Masukkan PIN Pemilik untuk melihat laporan."
+              onGoBack={() => handleSelectTab(getFirstAllowedStaffTab())}
+            />
+          )
+        )}
       </main>
 
       {/* Global Modals */}

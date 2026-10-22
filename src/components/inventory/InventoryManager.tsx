@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 
 export const InventoryManager: React.FC = () => {
-  const { settings, accessories, addAccessory, updateAccessory, deleteAccessory, adjustAccessoryStock } = useApp();
+  const { accessories, addAccessory, updateAccessory, deleteAccessory, adjustAccessoryStock } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Semua');
@@ -26,16 +26,12 @@ export const InventoryManager: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<AccessoryItem | null>(null);
 
-  const minStockLimit = settings.defaultMinStockAlert ?? 5;
-  const getItemMinStock = (item: AccessoryItem) =>
-    typeof item.minStock === 'number' && item.minStock > 0 ? item.minStock : minStockLimit;
-
   // Form State
   const [formName, setFormName] = useState('');
   const [formCategory, setFormCategory] = useState<AccessoryItem['category']>('Kabel & Adaptor');
   const [formSku, setFormSku] = useState('');
   const [formStock, setFormStock] = useState<number>(10);
-  const [formMinStock, setFormMinStock] = useState<number>(minStockLimit);
+  const [formMinStock, setFormMinStock] = useState<number>(5);
   const [formPriceCost, setFormPriceCost] = useState<number>(10000);
   const [formPriceSell, setFormPriceSell] = useState<number>(20000);
 
@@ -45,7 +41,7 @@ export const InventoryManager: React.FC = () => {
   const totalUnits = useMemo(() => accessories.reduce((sum, a) => sum + a.stock, 0), [accessories]);
   const totalCostValue = useMemo(() => accessories.reduce((sum, a) => sum + a.stock * a.priceCost, 0), [accessories]);
   const totalSellValue = useMemo(() => accessories.reduce((sum, a) => sum + a.stock * a.priceSell, 0), [accessories]);
-  const lowStockItems = useMemo(() => accessories.filter((a) => a.stock <= getItemMinStock(a)), [accessories, minStockLimit]);
+  const lowStockItems = useMemo(() => accessories.filter((a) => a.stock <= a.minStock), [accessories]);
 
   const filteredItems = useMemo(() => {
     return accessories.filter((item) => {
@@ -53,10 +49,10 @@ export const InventoryManager: React.FC = () => {
       const matchSearch =
         item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         item.sku.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchLowStock = showLowStockOnly ? item.stock <= getItemMinStock(item) : true;
+      const matchLowStock = showLowStockOnly ? item.stock <= item.minStock : true;
       return matchCat && matchSearch && matchLowStock;
     });
-  }, [accessories, selectedCategory, searchTerm, showLowStockOnly, minStockLimit]);
+  }, [accessories, selectedCategory, searchTerm, showLowStockOnly]);
 
   const handleOpenAddModal = () => {
     setEditingItem(null);
@@ -64,7 +60,7 @@ export const InventoryManager: React.FC = () => {
     setFormCategory('Kabel & Adaptor');
     setFormSku('ACC-' + Math.floor(100 + Math.random() * 900));
     setFormStock(10);
-    setFormMinStock(minStockLimit);
+    setFormMinStock(5);
     setFormPriceCost(10000);
     setFormPriceSell(20000);
     setIsModalOpen(true);

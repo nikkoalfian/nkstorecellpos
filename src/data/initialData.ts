@@ -57,7 +57,6 @@ export const INITIAL_SETTINGS: StoreSettings = {
   receiptFooterMessage: 'Terima kasih atas kepercayaannya. Transaksi cepat, aman & terpercaya!',
   defaultTransferAdminFee: 5000,
   defaultTarikTunaiAdminFee: 5000,
-  defaultMinStockAlert: 5,
   printerPaperWidth: '58mm',
   serverNames: [
     'Server 1 - Digipos (Telkomsel)',

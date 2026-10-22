@@ -59,37 +59,3 @@
   color: #111827;
   font-family: 'Courier New', Courier, monospace;
 }
-
-/* Clean, stable tab transition animation (opacity only - avoids breaking position: sticky in child views) */
-@keyframes tabFade {
-  0% {
-    opacity: 0.88;
-  }
-  100% {
-    opacity: 1;
-  }
-}
-
-.tab-content-enter {
-  animation: tabFade 140ms ease-out;
-}
-
-@keyframes fadeIn {
-  0% {
-    opacity: 0;
-  }
-  100% {
-    opacity: 1;
-  }
-}
-
-.animate-fade-in {
-  animation: fadeIn 180ms ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tab-content-enter,
-  .animate-fade-in {
-    animation: none !important;
-  }
-}

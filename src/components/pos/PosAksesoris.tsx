@@ -22,9 +22,8 @@ interface PosAksesorisProps {
 }
 
 export const PosAksesoris: React.FC<PosAksesorisProps> = ({ onGoToInventory }) => {
-  const { settings, accessories, addTransaction, isOwnerUnlocked, hasPermission } = useApp();
+  const { accessories, addTransaction, isOwnerUnlocked, hasPermission } = useApp();
   const showProfit = isOwnerUnlocked || hasPermission('canViewCostPrice');
-  const minStockLimit = settings.defaultMinStockAlert ?? 5;
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Semua');
@@ -184,14 +183,13 @@ export const PosAksesoris: React.FC<PosAksesorisProps> = ({ onGoToInventory }) =
           {filteredItems.map((item) => {
             const inCart = cart.find((c) => c.item.id === item.id);
             const isOutOfStock = item.stock <= 0;
-            const threshold = typeof item.minStock === 'number' && item.minStock > 0 ? item.minStock : minStockLimit;
-            const isLowStock = item.stock > 0 && item.stock <= threshold;
+            const isLowStock = item.stock > 0 && item.stock <= item.minStock;
 
             return (
               <div
                 key={item.id}
                 onClick={() => !isOutOfStock && addToCart(item)}
-                className={`relative p-3.5 rounded-2xl border transition-colors duration-150 flex flex-col justify-between ${
+                className={`relative p-3.5 rounded-2xl border transition-all duration-200 flex flex-col justify-between ${
                   isOutOfStock
                     ? 'bg-slate-950/40 border-slate-800/60 opacity-60 cursor-not-allowed'
                     : inCart
