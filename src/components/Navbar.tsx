@@ -98,7 +98,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
         },
         {
           id: 'permissions' as ActiveTab,
-          label: '🛡️ Hak Akses Staf',
+          label: '🛡️ Hak Akses & Akun Staf',
           icon: ShieldCheck,
           color: 'text-amber-300',
         },

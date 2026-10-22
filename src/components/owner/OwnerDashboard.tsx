@@ -90,7 +90,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({ onNavigateTab, o
               className="px-3.5 py-2 rounded-xl bg-amber-900/60 hover:bg-amber-800/80 text-amber-200 border border-amber-600/60 text-xs font-bold flex items-center gap-2 transition shadow-md shadow-amber-950/40"
             >
               <ShieldCheck className="w-4 h-4 text-amber-400" />
-              Atur Hak Akses Staf
+              Hak Akses & Akun Kasir
             </button>
             <button
               type="button"
@@ -308,7 +308,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({ onNavigateTab, o
             }`}
           >
             <ShieldCheck className="w-4 h-4" />
-            Atur Hak Akses Staf / Kasir
+            Hak Akses & Akun Kasir
           </button>
           <button
             type="button"
