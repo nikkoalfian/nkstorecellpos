@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { formatRupiah, formatTanggal } from '../../utils/formatters';
 import { StaffPermissionsManager } from './StaffPermissionsManager';
+import { OwnerDailySalesChart } from './OwnerDailySalesChart';
 import {
   Crown,
   Lock,
@@ -207,6 +208,12 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({ onNavigateTab, o
           </div>
         </div>
       </div>
+
+      {/* Kartu Ringkasan Visual Tren Penjualan 7 Hari Terakhir */}
+      <OwnerDailySalesChart
+        transactions={transactions}
+        onNavigateReports={() => onNavigateTab('reports')}
+      />
 
       {/* Status Kasir & Shift Aktif Saat Ini */}
       <div className="p-5 rounded-3xl bg-slate-900/90 border border-slate-800 shadow-xl space-y-3">

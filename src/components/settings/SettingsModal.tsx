@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { StoreSettings, StaffPermissions } from '../../types';
 import { DEFAULT_STAFF_PERMISSIONS } from '../../data/initialData';
+import { bluetoothPrinter } from '../../utils/bluetoothPrinter';
 import {
   Settings,
   X,
@@ -17,6 +18,11 @@ import {
   Lock,
   Eye,
   EyeOff,
+  Bluetooth,
+  Smartphone,
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -30,6 +36,51 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [form, setForm] = useState<StoreSettings>({ ...settings });
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [showPin, setShowPin] = useState(false);
+  const [btConnectedDevice, setBtConnectedDevice] = useState<{ name: string; connected: boolean } | null>(
+    bluetoothPrinter.getConnectedDevice()
+  );
+  const [isBtTesting, setIsBtTesting] = useState(false);
+  const [btTestMsg, setBtTestMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+
+  const handleConnectBt = async () => {
+    setIsBtTesting(true);
+    setBtTestMsg({ type: 'info', text: 'Mencari perangkat printer Bluetooth di sekitar...' });
+    try {
+      const dev = await bluetoothPrinter.connect();
+      setBtConnectedDevice({ name: dev.name, connected: true });
+      setBtTestMsg({ type: 'success', text: `Terhubung ke printer "${dev.name}"!` });
+    } catch (err: any) {
+      const isAbort = err?.name === 'NotFoundError' || err?.message?.includes('User cancelled');
+      if (!isAbort) {
+        setBtTestMsg({ type: 'error', text: err?.message || 'Gagal menyambung printer Bluetooth.' });
+      } else {
+        setBtTestMsg(null);
+      }
+    } finally {
+      setIsBtTesting(false);
+    }
+  };
+
+  const handleDisconnectBt = async () => {
+    await bluetoothPrinter.disconnect();
+    setBtConnectedDevice(null);
+    setBtTestMsg({ type: 'info', text: 'Koneksi printer Bluetooth diputuskan.' });
+  };
+
+  const handleTestPrintBt = async () => {
+    setIsBtTesting(true);
+    setBtTestMsg({ type: 'info', text: 'Mengirim struk tes ke printer Bluetooth...' });
+    try {
+      await bluetoothPrinter.printTestReceipt(form);
+      const dev = bluetoothPrinter.getConnectedDevice();
+      setBtConnectedDevice(dev);
+      setBtTestMsg({ type: 'success', text: 'Tes struk berhasil dikirim ke printer!' });
+    } catch (err: any) {
+      setBtTestMsg({ type: 'error', text: err?.message || 'Gagal cetak tes printer.' });
+    } finally {
+      setIsBtTesting(false);
+    }
+  };
 
   // Sync form data with latest store settings whenever opened
   useEffect(() => {
@@ -270,10 +321,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             </div>
           </div>
 
-          {/* Pengaturan Struk */}
+          {/* Pengaturan Struk & Printer Bluetooth */}
           <div className="space-y-3 pt-3 border-t border-slate-800">
             <h4 className="text-slate-300 font-bold uppercase tracking-wider flex items-center gap-2">
-              <Printer className="w-4 h-4 text-blue-400" /> Tampilan Struk Kasir
+              <Printer className="w-4 h-4 text-blue-400" /> Tampilan Struk & Printer Bluetooth Thermal
             </h4>
 
             <div>
@@ -312,6 +363,99 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   80mm (Printer Thermal Lebar)
                 </button>
               </div>
+            </div>
+
+            {/* Kotak Pengujian Printer Bluetooth Thermal */}
+            <div className="p-3.5 bg-slate-950 rounded-2xl border border-blue-900/40 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-blue-600/20 text-blue-400 flex items-center justify-center">
+                    <Bluetooth className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h5 className="text-xs font-bold text-white">Printer Thermal Bluetooth (ESC/POS)</h5>
+                    <p className="text-[10px] text-slate-400">
+                      Kompatibel printer kasir 58mm / 80mm Bluetooth (RPP02N, PT-210, Panda, dsb)
+                    </p>
+                  </div>
+                </div>
+                {btConnectedDevice ? (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 flex items-center gap-1 font-semibold">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    {btConnectedDevice.name}
+                  </span>
+                ) : (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">
+                    Belum Terhubung
+                  </span>
+                )}
+              </div>
+
+              {/* Action Buttons Connect & Test Print */}
+              <div className="flex flex-wrap gap-2 pt-1">
+                {!btConnectedDevice ? (
+                  <button
+                    type="button"
+                    onClick={handleConnectBt}
+                    disabled={isBtTesting}
+                    className="flex-1 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-md shadow-blue-950/40"
+                  >
+                    {isBtTesting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bluetooth className="w-3.5 h-3.5" />}
+                    <span>Hubungkan Printer Bluetooth</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleDisconnectBt}
+                    className="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition"
+                  >
+                    Putuskan
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleTestPrintBt}
+                  disabled={isBtTesting}
+                  className="py-2 px-3 rounded-xl bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-md shadow-emerald-950/40"
+                >
+                  {isBtTesting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Printer className="w-3.5 h-3.5" />}
+                  <span>Tes Cetak Struk Bluetooth</span>
+                </button>
+              </div>
+
+              {/* Status Message */}
+              {btTestMsg && (
+                <div
+                  className={`p-2 rounded-xl text-[11px] flex items-center gap-2 ${
+                    btTestMsg.type === 'error'
+                      ? 'bg-rose-950/60 border border-rose-800/80 text-rose-300'
+                      : btTestMsg.type === 'success'
+                      ? 'bg-emerald-950/60 border border-emerald-800/80 text-emerald-300'
+                      : 'bg-blue-950/60 border border-blue-800/80 text-blue-300'
+                  }`}
+                >
+                  {btTestMsg.type === 'error' ? (
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-400" />
+                  ) : btTestMsg.type === 'success' ? (
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+                  ) : (
+                    <Loader2 className="w-3.5 h-3.5 shrink-0 text-blue-400 animate-spin" />
+                  )}
+                  <span className="flex-1">{btTestMsg.text}</span>
+                  <button
+                    type="button"
+                    onClick={() => setBtTestMsg(null)}
+                    className="text-slate-400 hover:text-white"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+
+              <p className="text-[10px] text-slate-500">
+                💡 <strong>Tips HP Android:</strong> Pada dialog struk transaksi dan rekap shift juga disediakan tombol khusus <strong>&quot;RawBT&quot;</strong> jika Anda lebih suka mencetak 1-klik melalui aplikasi RawBT Print Service di Android.
+              </p>
             </div>
           </div>
 
@@ -388,14 +532,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     <button
                       type="button"
                       onClick={() => {
-                        if (confirm('Kembalikan PIN pemilik ke PIN standar bawaan sistem?')) {
-                          setForm({ ...form, ownerPin: '1234' });
-                        }
+                        setForm({ ...form, ownerPin: '1234' });
                       }}
                       className="text-[10px] text-slate-400 hover:text-white bg-slate-800 px-2.5 py-0.5 rounded transition"
-                      title="Kembalikan ke PIN standar"
+                      title="Kembalikan ke PIN standar (1234)"
                     >
-                      Reset Standar
+                      Reset Standar (1234)
                     </button>
                   </div>
                 </div>

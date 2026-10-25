@@ -17,10 +17,14 @@ import {
   Smartphone,
   Phone,
   Users,
-  UserCheck,
   Upload,
   Sparkles,
   Calendar,
+  User,
+  ArrowRight,
+  Wallet,
+  Building2,
+  CheckCircle2,
 } from 'lucide-react';
 
 export const KasbonManager: React.FC = () => {
@@ -30,12 +34,49 @@ export const KasbonManager: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
-  // Form
+  // Helper for DD/MM/YYYY formatting
+  const formatDateToDDMMYYYY = (isoDate: string): string => {
+    if (!isoDate) return '';
+    const parts = isoDate.split('-');
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return isoDate;
+  };
+
+  const getInitialDueDate = (): string => {
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  // Form State matching Reference Image
+  const [amount, setAmount] = useState<number | ''>('');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
-  const [amount, setAmount] = useState<number | ''>('');
+  const [dueDate, setDueDate] = useState<string>(getInitialDueDate());
   const [description, setDescription] = useState('');
-  const [dueDate, setDueDate] = useState('');
+  const [takeFromCashDrawer, setTakeFromCashDrawer] = useState(false);
+  const [showPhoneField, setShowPhoneField] = useState(false);
+
+  // Toast Feedback State
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
+
+  const showToast = (text: string, type: 'success' | 'info' | 'error' = 'success') => {
+    setToastMessage({ text, type });
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 3500);
+  };
+
+  // Modals for Lunaskan & Delete (Fixing issues where window.confirm is blocked in iframe)
+  const [itemToSettle, setItemToSettle] = useState<KasbonRecord | null>(null);
+  const [settleAccountId, setSettleAccountId] = useState<string>('');
+  const [settleMethod, setSettleMethod] = useState<'cash' | 'bank'>('cash');
+  const [itemToDelete, setItemToDelete] = useState<KasbonRecord | null>(null);
 
   // Quick date shortcut helper
   const setQuickDueDate = (days: number) => {
@@ -90,7 +131,6 @@ export const KasbonManager: React.FC = () => {
   const storeCustomerContacts = useMemo(() => {
     const map = new Map<string, { name: string; phone: string; count: number }>();
 
-    // From Kasbon
     kasbonList.forEach((k) => {
       if (k.customerName) {
         const key = k.customerName.toLowerCase().trim();
@@ -104,7 +144,6 @@ export const KasbonManager: React.FC = () => {
       }
     });
 
-    // From Transactions
     transactions.forEach((t) => {
       if (t.targetName && t.targetNumber && t.targetNumber !== '-') {
         const key = t.targetName.toLowerCase().trim();
@@ -118,7 +157,6 @@ export const KasbonManager: React.FC = () => {
       }
     });
 
-    // Merge with any imported vCard contacts
     importedVcfContacts.forEach((c) => {
       const key = c.name.toLowerCase().trim();
       if (!map.has(key)) {
@@ -152,8 +190,10 @@ export const KasbonManager: React.FC = () => {
     setCustomerName('');
     setCustomerPhone('');
     setAmount('');
-    setDescription('Pulsa / Barang tempo');
-    setDueDate('');
+    setDescription('');
+    setDueDate(getInitialDueDate());
+    setTakeFromCashDrawer(false);
+    setShowPhoneField(false);
     setSyncFeedback(null);
     setShowNameSuggestions(false);
     setIsAddModalOpen(true);
@@ -161,22 +201,83 @@ export const KasbonManager: React.FC = () => {
 
   const handleSaveAdd = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customerName || !amount) return;
+    if (!customerName.trim()) {
+      showToast('Silakan isi nama pelanggan!', 'error');
+      return;
+    }
+    if (!amount || Number(amount) <= 0) {
+      showToast('Silakan masukkan nominal kasbon yang valid!', 'error');
+      return;
+    }
 
     addKasbon({
-      customerName,
-      customerPhone,
+      customerName: customerName.trim(),
+      customerPhone: customerPhone.trim(),
       amount: Number(amount),
-      description: description || 'Kasbon pulsa/barang',
+      description: description.trim() || 'Kasbon pulsa/barang',
       dueDate: dueDate || undefined,
+      takeFromCashDrawer,
     });
 
     setIsAddModalOpen(false);
+    showToast(
+      `Catatan kasbon ${customerName} sebesar ${formatRupiah(Number(amount))} berhasil disimpan!`,
+      'success'
+    );
+  };
+
+  // Target receiving accounts strictly for Kasbon Settlement: ONLY Kas Laci and Rekening Bank & Dompet Digital
+  const cashAccounts = useMemo(() => {
+    return accounts.filter((acc) => acc.type === 'cash');
+  }, [accounts]);
+
+  const bankAndEwalletAccounts = useMemo(() => {
+    return accounts.filter((acc) => acc.type === 'bank' || acc.type === 'ewallet');
+  }, [accounts]);
+
+  const handleOpenSettleModal = (item: KasbonRecord) => {
+    setItemToSettle(item);
+    setSettleMethod('cash');
+    const defaultCash = cashAccounts[0]?.id || accounts.find((a) => a.type === 'cash')?.id || '';
+    setSettleAccountId(defaultCash);
+  };
+
+  // Lunaskan Confirmation Execution
+  const handleConfirmSettle = () => {
+    if (!itemToSettle) return;
+    const defaultCash = cashAccounts[0]?.id || accounts.find((a) => a.type === 'cash')?.id || '';
+    let targetAccId = defaultCash;
+    if (settleMethod === 'cash') {
+      targetAccId = defaultCash;
+    } else {
+      targetAccId = settleAccountId || bankAndEwalletAccounts[0]?.id || defaultCash;
+    }
+
+    settleKasbon(itemToSettle.id, targetAccId);
+
+    const chosenAcc = accounts.find((a) => a.id === targetAccId);
+    const isCashDrawer = chosenAcc?.type === 'cash';
+
+    showToast(
+      `Kasbon ${itemToSettle.customerName} (${formatRupiah(itemToSettle.amount)}) LUNAS! Uang pembayaran ${
+        isCashDrawer ? 'langsung masuk menambah Kas Laci' : `masuk ke ${chosenAcc?.name || 'rekening'}`
+      }.`,
+      'success'
+    );
+    setItemToSettle(null);
+  };
+
+  // Delete Confirmation Execution
+  const handleConfirmDelete = () => {
+    if (!itemToDelete) return;
+    deleteKasbon(itemToDelete.id);
+    showToast(`Catatan kasbon ${itemToDelete.customerName} berhasil dihapus.`, 'info');
+    setItemToDelete(null);
   };
 
   const handleSendReminderWA = (record: KasbonRecord) => {
     if (!record.customerPhone) {
-      alert('Nomor WhatsApp pelanggan belum terdaftar pada catatan ini.');
+      showToast('Nomor WhatsApp pelanggan belum terdaftar pada catatan ini.', 'error');
       return;
     }
 
@@ -218,38 +319,41 @@ Pembayaran bisa dilakukan secara tunai di konter atau transfer ya kak. Terima ka
           const formattedTel = formatContactPhone(rawTel);
 
           if (pickedName) setCustomerName(pickedName);
-          if (formattedTel) setCustomerPhone(formattedTel);
+          if (formattedTel) {
+            setCustomerPhone(formattedTel);
+            setShowPhoneField(true);
+          }
 
           setShowNameSuggestions(false);
-          setSyncFeedback(`Kontak "${pickedName}" (${formattedTel || 'tanpa nomor'}) berhasil disinkronkan dari HP/Tablet!`);
-          setTimeout(() => setSyncFeedback(null), 4000);
+          setSyncFeedback(`Kontak "${pickedName}" berhasil disinkronkan!`);
+          setTimeout(() => setSyncFeedback(null), 3500);
           return;
         }
       } catch (err: any) {
-        // User aborted / cancelled dialog on device
         if (err?.name === 'AbortError') {
           return;
         }
-        console.warn('Native contact picker unavailable or restricted, opening modal:', err);
         setIsContactModalOpen(true);
         return;
       }
     } else {
-      // Browser does not support native Contact Picker API, open contact selector dialog
       setIsContactModalOpen(true);
     }
   };
 
   const handleSelectContactFromList = (contact: { name: string; phone: string }) => {
     setCustomerName(contact.name);
-    setCustomerPhone(contact.phone);
+    if (contact.phone) {
+      setCustomerPhone(contact.phone);
+      setShowPhoneField(true);
+    }
     setIsContactModalOpen(false);
     setShowNameSuggestions(false);
-    setSyncFeedback(`Kontak "${contact.name}" (${contact.phone || 'tanpa nomor'}) berhasil disinkronkan!`);
+    setSyncFeedback(`Kontak "${contact.name}" terpilih!`);
     setTimeout(() => setSyncFeedback(null), 3500);
   };
 
-  // vCard .vcf File Import Helper (for devices that want to sync all phone contacts via export)
+  // vCard .vcf File Import Helper
   const handleVcfFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -277,9 +381,9 @@ Pembayaran bisa dilakukan secara tunai di konter atau transfer ya kak. Terima ka
 
       if (parsed.length > 0) {
         setImportedVcfContacts((prev) => [...prev, ...parsed]);
-        alert(`Berhasil mengimpor ${parsed.length} kontak dari file perangkat Anda!`);
+        showToast(`Berhasil mengimpor ${parsed.length} kontak dari file perangkat!`, 'success');
       } else {
-        alert('File kontak tidak berisi format vCard yang valid.');
+        showToast('File kontak tidak berisi format vCard yang valid.', 'error');
       }
     };
     reader.readAsText(file);
@@ -287,6 +391,19 @@ Pembayaran bisa dilakukan secara tunai di konter atau transfer ya kak. Terima ka
 
   return (
     <div className="space-y-6">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed top-5 right-5 z-[100] max-w-sm flex items-center gap-3 px-4 py-3 rounded-2xl shadow-2xl border text-xs font-semibold backdrop-blur-md animate-fadeIn bg-slate-900/95 text-white border-slate-700">
+          {toastMessage.type === 'success' && <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0" />}
+          {toastMessage.type === 'info' && <AlertCircle className="w-5 h-5 text-blue-400 shrink-0" />}
+          {toastMessage.type === 'error' && <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />}
+          <span className="flex-1 leading-snug">{toastMessage.text}</span>
+          <button onClick={() => setToastMessage(null)} className="text-slate-400 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Overview Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="p-5 rounded-2xl bg-amber-950/40 border border-amber-800/50">
@@ -318,12 +435,12 @@ Pembayaran bisa dilakukan secara tunai di konter atau transfer ya kak. Terima ka
           <button
             type="button"
             onClick={handleOpenAdd}
-            className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-blue-900/30 transition"
+            className="w-full py-2.5 px-4 rounded-xl bg-[#00a86b] hover:bg-[#009b63] text-white font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/40 transition active:scale-[0.98]"
           >
             <Plus className="w-4 h-4" /> Catat Kasbon Pelanggan
           </button>
           <span className="text-[11px] text-slate-500 mt-2 block">
-            Sinkron kontak otomatis dari HP / Tablet
+            Form kasbon instan dengan opsi Ambil dari Cashdrawer
           </span>
         </div>
       </div>
@@ -368,10 +485,10 @@ Pembayaran bisa dilakukan secara tunai di konter atau transfer ya kak. Terima ka
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
           <input
             type="text"
-            placeholder="Cari nama pelanggan, nomor WA, catatan..."
+            placeholder="Cari nama pelanggan, nomor WA, keterangan..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+            className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
           />
         </div>
       </div>
@@ -432,11 +549,17 @@ Pembayaran bisa dilakukan secara tunai di konter atau transfer ya kak. Terima ka
                           : 'text-amber-300'
                       }`}
                     >
-                      {formatDateIndo(item.dueDate)}
+                      {formatDateToDDMMYYYY(item.dueDate)} ({formatDateIndo(item.dueDate)})
                       {!item.isPaid &&
                         new Date(item.dueDate + 'T23:59:59') < new Date() &&
                         ' (Lewat)'}
                     </span>
+                  </div>
+                )}
+                {item.takeFromCashDrawer && (
+                  <div className="text-[10px] text-cyan-300 flex items-center gap-1 pt-1 border-t border-slate-800/60">
+                    <Wallet className="w-3 h-3 text-cyan-400" />
+                    <span>Diambil dari Cashdrawer</span>
                   </div>
                 )}
                 {item.isPaid && item.paidDate && (
@@ -463,30 +586,23 @@ Pembayaran bisa dilakukan secara tunai di konter atau transfer ya kak. Terima ka
               <div className="flex items-center gap-1.5">
                 {!item.isPaid ? (
                   <>
-                    <button
-                      type="button"
-                      onClick={() => handleSendReminderWA(item)}
-                      className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/40 text-xs font-semibold flex items-center gap-1.5 transition"
-                      title="Kirim pesan penagihan otomatis ke WhatsApp"
-                    >
-                      <MessageCircle className="w-3.5 h-3.5" />
-                      Tagih WA
-                    </button>
+                    {item.customerPhone ? (
+                      <button
+                        type="button"
+                        onClick={() => handleSendReminderWA(item)}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-500/40 text-xs font-semibold flex items-center gap-1.5 transition"
+                        title="Kirim pesan penagihan otomatis ke WhatsApp"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5" />
+                        Tagih WA
+                      </button>
+                    ) : null}
 
+                    {/* Lunaskan button opens in-app settlement modal with Kas Laci as default */}
                     <button
                       type="button"
-                      onClick={() => {
-                        if (
-                          confirm(
-                            `Tandai kasbon ${item.customerName} sebesar ${formatRupiah(
-                              item.amount
-                            )} sebagai LUNAS? Uang kasir akan disesuaikan.`
-                          )
-                        ) {
-                          settleKasbon(item.id);
-                        }
-                      }}
-                      className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow transition"
+                      onClick={() => handleOpenSettleModal(item)}
+                      className="px-3 py-1.5 rounded-xl bg-[#00a86b] hover:bg-[#009b63] text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-emerald-950/40 transition active:scale-95"
                     >
                       <Check className="w-3.5 h-3.5" />
                       Lunaskan
@@ -494,15 +610,12 @@ Pembayaran bisa dilakukan secara tunai di konter atau transfer ya kak. Terima ka
                   </>
                 ) : null}
 
+                {/* FIXED: Delete button opens in-app delete confirmation modal reliably */}
                 <button
                   type="button"
-                  onClick={() => {
-                    if (confirm(`Hapus catatan kasbon ${item.customerName}?`)) {
-                      deleteKasbon(item.id);
-                    }
-                  }}
-                  className="p-2 rounded-xl bg-slate-800 hover:bg-red-900/50 text-slate-400 hover:text-red-300 transition"
-                  title="Hapus Catatan"
+                  onClick={() => setItemToDelete(item)}
+                  className="p-2 rounded-xl bg-slate-800 hover:bg-rose-900/60 text-slate-400 hover:text-rose-200 transition"
+                  title="Hapus Catatan Kasbon"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -520,133 +633,149 @@ Pembayaran bisa dilakukan secara tunai di konter atau transfer ya kak. Terima ka
         </div>
       )}
 
-      {/* Modal Add Kasbon */}
+      {/* ========================================================================= */}
+      {/* MODAL: TAMBAH CATATAN KASBON (MATCHING USER REFERENCE IMAGE EXACTLY)       */}
+      {/* ========================================================================= */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl overflow-hidden my-6">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-800/60">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center">
-                  <DollarSign className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-white text-base">Catat Kasbon Pelanggan Baru</h3>
-                  <p className="text-[11px] text-slate-400">Catat hutang pulsa, kuota, atau aksesoris</p>
-                </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm">
+          <div className="w-full max-w-[380px] bg-slate-900 rounded-3xl p-4 sm:p-5 shadow-2xl border border-slate-800 text-white relative animate-fadeIn max-h-[96vh] flex flex-col justify-between">
+            {/* Top Header */}
+            <div className="flex items-center justify-between pb-2 mb-1 border-b border-slate-800/80">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-[#00a86b]" />
+                <h3 className="text-xs sm:text-sm font-bold text-white tracking-wide">
+                  Tambah Catatan Kasbon
+                </h3>
               </div>
               <button
+                type="button"
                 onClick={() => setIsAddModalOpen(false)}
-                className="p-1 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition"
+                className="w-7 h-7 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition"
+                title="Tutup"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveAdd} className="p-6 space-y-4 text-xs">
-              {/* TOMBOL UTAMA: SINKRONISASI KONTAK DARI HP / TABLET */}
-              <div className="p-3.5 rounded-2xl bg-gradient-to-r from-blue-950/80 via-indigo-950/60 to-cyan-950/80 border border-blue-800/60 shadow-lg shadow-blue-950/40">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-500 text-white flex items-center justify-center shrink-0 shadow-md shadow-blue-600/30">
-                      <Smartphone className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-bold text-white text-xs">Sinkron Kontak HP / Tablet</span>
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                          isDeviceContactSupported
-                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                            : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-                        }`}>
-                          {isDeviceContactSupported ? '🟢 Perangkat Siap' : '📱 Buku Kontak'}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        Isi Nama & WhatsApp otomatis dari buku telepon ponsel atau riwayat pelanggan toko
-                      </p>
-                    </div>
+            <form onSubmit={handleSaveAdd} className="space-y-2.5 text-xs">
+              {/* FIELD 1: NOMINAL (Large centered card matching reference, dark theme) */}
+              <div>
+                <label className="text-slate-400 font-semibold text-xs mb-1 block">
+                  Nominal
+                </label>
+                <div className="bg-slate-950 rounded-2xl border border-slate-800/90 py-2.5 px-3 text-center shadow-inner focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500/30 transition relative">
+                  <div className="flex items-center justify-center gap-1.5">
+                    <span className="text-2xl sm:text-3xl font-extrabold font-mono text-emerald-400 select-none">
+                      Rp
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="0"
+                      value={amount !== '' ? Number(amount).toLocaleString('id-ID') : ''}
+                      onChange={(e) => {
+                        const raw = e.target.value.replace(/[^0-9]/g, '');
+                        setAmount(raw ? Number(raw) : '');
+                      }}
+                      className="w-40 sm:w-48 text-2xl sm:text-3xl font-extrabold font-mono text-emerald-400 focus:outline-none bg-transparent placeholder-emerald-400/50 tracking-tight"
+                      autoFocus
+                    />
                   </div>
                 </div>
 
-                <div className="mt-3 flex gap-2">
-                  <button
-                    type="button"
-                    onClick={handlePickDeviceContact}
-                    className="flex-1 py-2 px-3 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-blue-950/60 transition active:scale-95"
-                  >
-                    <Smartphone className="w-4 h-4 text-cyan-200" />
-                    <span>Pilih Kontak dari Device HP</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsContactModalOpen(true)}
-                    className="px-3 py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white font-semibold text-xs border border-slate-700/80 flex items-center gap-1.5 transition"
-                    title="Buka daftar kontak tersimpan"
-                  >
-                    <Users className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Daftar</span>
-                  </button>
+                {/* Quick nominal buttons - compact row */}
+                <div className="flex gap-1 mt-1.5 justify-center flex-wrap">
+                  {[10000, 20000, 50000, 100000].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setAmount(val)}
+                      className="px-2 py-0.5 rounded-lg bg-slate-950 hover:bg-slate-800 text-slate-300 text-[10px] font-semibold border border-slate-800 transition"
+                    >
+                      +{val >= 1000 ? `${val / 1000}rb` : val}
+                    </button>
+                  ))}
+                  {amount !== '' && (
+                    <button
+                      type="button"
+                      onClick={() => setAmount('')}
+                      className="px-2 py-0.5 rounded-lg bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 text-[10px] font-semibold border border-rose-800/60 transition"
+                    >
+                      Reset
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {/* Feedback toast saat kontak berhasil diambil */}
-              {syncFeedback && (
-                <div className="p-3 bg-emerald-950/90 border border-emerald-700/80 text-emerald-200 rounded-xl text-[11px] flex items-center gap-2 shadow-lg animate-fadeIn">
-                  <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span className="font-semibold">{syncFeedback}</span>
-                </div>
-              )}
-
-              {/* Nama Pelanggan Field dengan Autocomplete Suggestions */}
+              {/* FIELD 2: PELANGGAN* (Pill input with teal user icon, dark theme) */}
               <div className="relative">
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-slate-300 font-semibold">Nama Pelanggan:</label>
+                  <label className="text-slate-400 font-semibold text-xs">
+                    Pelanggan*
+                  </label>
                   <button
                     type="button"
                     onClick={handlePickDeviceContact}
-                    className="text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 font-semibold px-2 py-0.5 rounded-lg hover:bg-slate-800 transition"
+                    className="text-[10px] text-emerald-400 hover:text-emerald-300 font-semibold flex items-center gap-1"
                   >
-                    <Smartphone className="w-3 h-3" /> Sinkron Kontak HP
+                    <Smartphone className="w-3 h-3" /> Buku HP
                   </button>
                 </div>
-                <div className="relative">
+
+                <div className="bg-slate-950 rounded-full border border-slate-800 py-1.5 sm:py-2 px-3 flex items-center gap-2.5 shadow-sm focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500/30 transition relative">
+                  {/* Green user circle icon */}
+                  <div className="w-6 h-6 rounded-full bg-[#00a86b] flex items-center justify-center shrink-0">
+                    <User className="w-3.5 h-3.5 text-white fill-white" />
+                  </div>
+
                   <input
                     type="text"
-                    placeholder="Nama pelanggan / penghutang..."
+                    placeholder="Pilih Pelanggan"
                     value={customerName}
                     onChange={(e) => {
                       setCustomerName(e.target.value);
                       setShowNameSuggestions(true);
                     }}
                     onFocus={() => setShowNameSuggestions(true)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-medium focus:outline-none focus:border-blue-500"
+                    className="flex-1 bg-transparent text-white placeholder:text-slate-500 font-medium text-xs sm:text-sm focus:outline-none"
                     required
                   />
-                  {customerName && (
+
+                  {customerName ? (
                     <button
                       type="button"
                       onClick={() => {
                         setCustomerName('');
+                        setCustomerPhone('');
                         setShowNameSuggestions(false);
                       }}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                      className="p-1 rounded-full text-slate-400 hover:text-white"
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
-                  )}
+                  ) : null}
+
+                  <button
+                    type="button"
+                    onClick={() => setIsContactModalOpen(true)}
+                    className="p-1 rounded-full text-slate-400 hover:text-emerald-400"
+                    title="Pilih dari daftar kontak toko"
+                  >
+                    <Users className="w-3.5 h-3.5" />
+                  </button>
                 </div>
 
-                {/* Floating Suggestions Dropdown */}
+                {/* Auto-suggest dropdown when typing or clicking Pelanggan */}
                 {showNameSuggestions && nameSuggestions.length > 0 && (
-                  <div className="absolute z-30 left-0 right-0 mt-1 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden max-h-48 overflow-y-auto">
-                    <div className="px-3 py-1.5 bg-slate-800/80 border-b border-slate-700/60 flex items-center justify-between text-[10px] text-slate-400">
-                      <span className="font-semibold text-cyan-300 flex items-center gap-1">
-                        <Users className="w-3 h-3" /> Saran Kontak Pelanggan Toko
+                  <div className="absolute z-30 left-0 right-0 mt-1 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden max-h-40 overflow-y-auto">
+                    <div className="px-3 py-1 bg-slate-800/80 border-b border-slate-700 flex items-center justify-between text-[10px] text-slate-400">
+                      <span className="font-semibold text-emerald-400 flex items-center gap-1">
+                        <Users className="w-3 h-3" /> Pelanggan Tersimpan
                       </span>
                       <button
                         type="button"
                         onClick={() => setShowNameSuggestions(false)}
-                        className="hover:text-white font-medium"
+                        className="text-slate-400 hover:text-white font-medium"
                       >
                         Tutup
                       </button>
@@ -656,19 +785,20 @@ Pembayaran bisa dilakukan secara tunai di konter atau transfer ya kak. Terima ka
                         key={idx}
                         onClick={() => {
                           setCustomerName(c.name);
-                          if (c.phone) setCustomerPhone(c.phone);
+                          if (c.phone) {
+                            setCustomerPhone(c.phone);
+                            setShowPhoneField(true);
+                          }
                           setShowNameSuggestions(false);
-                          setSyncFeedback(`Kontak "${c.name}" terpilih!`);
-                          setTimeout(() => setSyncFeedback(null), 3000);
                         }}
-                        className="px-3.5 py-2 hover:bg-slate-800/90 border-b border-slate-800/60 last:border-0 cursor-pointer flex items-center justify-between transition group"
+                        className="px-3 py-1.5 hover:bg-slate-800 border-b border-slate-800 last:border-0 cursor-pointer flex items-center justify-between transition group"
                       >
                         <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-lg bg-blue-600/30 text-blue-300 font-bold flex items-center justify-center text-[10px]">
+                          <div className="w-5 h-5 rounded-full bg-emerald-950 text-emerald-400 font-bold flex items-center justify-center text-[10px] border border-emerald-800">
                             {c.name.charAt(0).toUpperCase()}
                           </div>
                           <div>
-                            <span className="font-bold text-white text-xs group-hover:text-cyan-300 block">
+                            <span className="font-semibold text-white text-xs block group-hover:text-emerald-300">
                               {c.name}
                             </span>
                             {c.phone && (
@@ -678,159 +808,135 @@ Pembayaran bisa dilakukan secara tunai di konter atau transfer ya kak. Terima ka
                             )}
                           </div>
                         </div>
-                        <span className="text-[10px] bg-cyan-950 text-cyan-300 border border-cyan-800/60 px-2 py-0.5 rounded-lg font-semibold group-hover:bg-cyan-600 group-hover:text-white transition">
+                        <span className="text-[9px] bg-emerald-950 text-emerald-300 border border-emerald-800 px-2 py-0.5 rounded-full font-semibold">
                           Pilih
                         </span>
                       </div>
                     ))}
                   </div>
                 )}
-              </div>
 
-              {/* No. WhatsApp Pelanggan */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-slate-300 font-semibold">
-                    No. WhatsApp Pelanggan (Untuk Tagih):
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handlePickDeviceContact}
-                    className="text-[11px] text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-semibold px-2 py-0.5 rounded-lg hover:bg-slate-800 transition"
-                  >
-                    <Phone className="w-3 h-3" /> Ambil dari HP
-                  </button>
-                </div>
-                <div className="relative">
-                  <input
-                    type="tel"
-                    placeholder="Contoh: 081234567890"
-                    value={customerPhone}
-                    onChange={(e) => setCustomerPhone(e.target.value.replace(/[^0-9+]/g, ''))}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 font-mono text-white focus:outline-none focus:border-blue-500"
-                  />
-                  {customerPhone && (
+                {/* Optional WhatsApp Number inline */}
+                <div className="mt-1 px-1">
+                  {!showPhoneField && !customerPhone ? (
                     <button
                       type="button"
-                      onClick={() => setCustomerPhone('')}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                      onClick={() => setShowPhoneField(true)}
+                      className="text-[10px] text-slate-400 hover:text-slate-200 flex items-center gap-1"
                     >
-                      <X className="w-3.5 h-3.5" />
+                      <Phone className="w-2.5 h-2.5 text-slate-500" />
+                      <span>+ Tambah No. WhatsApp (opsional untuk tagih)</span>
                     </button>
+                  ) : (
+                    <div className="flex items-center gap-2 mt-1 bg-slate-950 rounded-xl px-2.5 py-1 border border-slate-800">
+                      <Phone className="w-3 h-3 text-emerald-400 shrink-0" />
+                      <input
+                        type="tel"
+                        placeholder="No. WA (misal: 081234567890)"
+                        value={customerPhone}
+                        onChange={(e) => setCustomerPhone(e.target.value.replace(/[^0-9+]/g, ''))}
+                        className="flex-1 bg-transparent text-[11px] text-white placeholder:text-slate-500 font-mono focus:outline-none"
+                      />
+                      {customerPhone && (
+                        <button
+                          type="button"
+                          onClick={() => setCustomerPhone('')}
+                          className="text-slate-500 hover:text-slate-300"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
+              </div>
 
-                {customerPhone && (
-                  <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-emerald-400 bg-emerald-950/40 border border-emerald-900/50 px-2.5 py-1 rounded-lg">
-                    <MessageCircle className="w-3 h-3 shrink-0" />
-                    <span className="font-mono truncate">
-                      Format WA: +{cleanPhoneNumber(customerPhone)} (Siap kirim tagihan)
-                    </span>
+              {/* FIELD 3: JATUH TEMPO (Pill input with calendar icon & DD/MM/YYYY, dark theme) */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-slate-400 font-semibold text-xs">
+                    Jatuh Tempo
+                  </label>
+                  <div className="flex gap-1 items-center">
+                    <button
+                      type="button"
+                      onClick={() => setQuickDueDate(0)}
+                      className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-950 border border-slate-800 text-slate-300 hover:bg-slate-800 transition"
+                    >
+                      Hari Ini
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQuickDueDate(3)}
+                      className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-950 border border-slate-800 text-slate-300 hover:bg-slate-800 transition"
+                    >
+                      +3 Hari
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setQuickDueDate(7)}
+                      className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-950 border border-slate-800 text-slate-300 hover:bg-slate-800 transition"
+                    >
+                      +1 Mgg
+                    </button>
                   </div>
-                )}
-              </div>
-
-              {/* Jumlah Kasbon */}
-              <div>
-                <label className="text-slate-300 font-semibold block mb-1">Jumlah Kasbon (Rp):</label>
-                <input
-                  type="number"
-                  placeholder="0"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value === '' ? '' : Number(e.target.value))}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-base font-bold font-mono text-amber-400 focus:outline-none focus:border-blue-500"
-                  required
-                />
-              </div>
-
-              {/* Jatuh Tempo (Pilih Tanggal) */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-slate-300 font-semibold flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Jatuh Tempo Pembayaran:</span>
-                  </label>
-                  {dueDate && (
-                    <button
-                      type="button"
-                      onClick={() => setDueDate('')}
-                      className="text-[11px] text-slate-400 hover:text-rose-400 transition"
-                    >
-                      ✕ Hapus Tanggal
-                    </button>
-                  )}
                 </div>
-                <input
-                  type="date"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-medium focus:outline-none focus:border-amber-500 cursor-pointer"
-                />
 
-                {/* Quick Date Buttons */}
-                <div className="flex gap-1.5 mt-2 flex-wrap items-center">
-                  <span className="text-[10px] text-slate-500 mr-0.5">Pintas:</span>
-                  <button
-                    type="button"
-                    onClick={() => setQuickDueDate(0)}
-                    className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold border transition ${
-                      dueDate === new Date().toISOString().split('T')[0]
-                        ? 'bg-amber-600 text-white border-amber-500'
-                        : 'bg-slate-950 text-slate-300 border-slate-800 hover:bg-slate-800'
-                    }`}
-                  >
-                    Hari Ini
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setQuickDueDate(1)}
-                    className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-slate-950 text-slate-300 border border-slate-800 hover:bg-slate-800 transition"
-                  >
-                    Besok (+1)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setQuickDueDate(3)}
-                    className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-slate-950 text-slate-300 border border-slate-800 hover:bg-slate-800 transition"
-                  >
-                    3 Hari
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setQuickDueDate(7)}
-                    className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-slate-950 text-slate-300 border border-slate-800 hover:bg-slate-800 transition"
-                  >
-                    1 Minggu
-                  </button>
+                <div className="relative bg-slate-950 rounded-full border border-slate-800 py-1.5 sm:py-2 px-3 flex items-center gap-2.5 shadow-sm hover:border-slate-700 cursor-pointer">
+                  {/* Calendar Icon */}
+                  <Calendar className="w-4 h-4 text-emerald-400 shrink-0 stroke-[2]" />
+                  <span className="text-xs sm:text-sm font-semibold font-mono text-white">
+                    {formatDateToDDMMYYYY(dueDate) || 'Pilih Tanggal'}
+                  </span>
+
+                  {/* Native Date Picker overlay - tapping anywhere opens picker */}
+                  <input
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
+                  />
                 </div>
               </div>
 
-              {/* Keterangan */}
+              {/* FIELD 4: KETERANGAN (Compact textarea with placeholder 'Tulis keterangan') */}
               <div>
-                <label className="text-slate-300 font-semibold block mb-1">Keterangan / Catatan Barang:</label>
-                <input
-                  type="text"
-                  placeholder="Contoh: Pulsa Telkomsel 25k, Kuota, Aksesoris..."
+                <label className="text-slate-400 font-semibold text-xs mb-1 block">
+                  Keterangan
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Tulis keterangan"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-slate-950 rounded-xl border border-slate-800 p-2 text-white placeholder:text-slate-500 text-xs focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30 transition resize-none shadow-inner"
                 />
               </div>
 
-              <div className="flex gap-2.5 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsAddModalOpen(false)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold transition"
-                >
-                  Batal
-                </button>
+              {/* FIELD 5: CHECKBOX 'Ambil dari Cashdrawer' */}
+              <div className="pt-0.5">
+                <label className="flex items-center gap-2.5 cursor-pointer select-none px-1">
+                  <input
+                    type="checkbox"
+                    id="takeFromDrawer"
+                    checked={takeFromCashDrawer}
+                    onChange={(e) => setTakeFromCashDrawer(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-700 bg-slate-950 text-[#00a86b] accent-[#00a86b] focus:ring-emerald-500 cursor-pointer"
+                  />
+                  <span className="text-xs font-semibold text-slate-300">
+                    Ambil dari Cashdrawer
+                  </span>
+                </label>
+              </div>
+
+              {/* FIELD 6: ACTION BUTTON 'SIMPAN' (Full width green pill button, compact) */}
+              <div className="pt-1">
                 <button
                   type="submit"
-                  disabled={!customerName || !amount}
-                  className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold flex items-center justify-center gap-1.5 disabled:opacity-50 shadow-lg shadow-blue-950/40 transition active:scale-95"
+                  disabled={!customerName.trim() || !amount}
+                  className="w-full py-2.5 sm:py-3 rounded-full bg-[#00a86b] hover:bg-[#009b63] active:scale-[0.99] text-white font-extrabold text-xs sm:text-sm tracking-wider uppercase shadow-lg shadow-emerald-950/60 disabled:opacity-40 disabled:pointer-events-none transition duration-150 cursor-pointer"
                 >
-                  <Check className="w-4 h-4" /> Simpan Kasbon
+                  SIMPAN
                 </button>
               </div>
             </form>
@@ -838,18 +944,240 @@ Pembayaran bisa dilakukan secara tunai di konter atau transfer ya kak. Terima ka
         </div>
       )}
 
-      {/* Modal Pemilih Kontak Pelanggan (Dialog Bantuan Sinkron Kontak) */}
+      {/* ========================================================================= */}
+      {/* MODAL: KONFIRMASI PELUNASAN KASBON (LUNASKAN)                              */}
+      {/* ========================================================================= */}
+      {/* ========================================================================= */}
+      {/* MODAL: KONFIRMASI PELUNASAN KASBON (LUNASKAN - COMPACT & RAPI TANPA SCROLL) */}
+      {/* ========================================================================= */}
+      {itemToSettle && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-2xl text-white space-y-3.5">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-[#00a86b] flex items-center justify-center font-bold">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-white leading-tight">Pelunasan Kasbon</h3>
+                  <p className="text-[11px] text-slate-400">Tandai kasbon lunas & uang otomatis masuk kas</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setItemToSettle(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Compact Customer & Amount Bar */}
+            <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <span className="text-[10px] text-slate-400 uppercase font-semibold block tracking-wider">
+                  Pelanggan
+                </span>
+                <div className="font-bold text-sm text-white truncate">{itemToSettle.customerName}</div>
+                <div className="text-[11px] text-slate-400 truncate mt-0.5">
+                  {itemToSettle.description}
+                  {itemToSettle.customerPhone && (
+                    <span className="font-mono text-slate-500 ml-1.5">• {itemToSettle.customerPhone}</span>
+                  )}
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                <span className="text-[10px] text-slate-400 uppercase font-semibold block tracking-wider">
+                  Total Tagihan
+                </span>
+                <div className="text-lg font-black font-mono text-emerald-400">
+                  {formatRupiah(itemToSettle.amount)}
+                </div>
+              </div>
+            </div>
+
+            {/* Segmented Payment Method Selector: Tunai (Kas Laci) vs Transfer */}
+            <div className="space-y-2">
+              <label className="text-[11px] font-semibold text-slate-300 block">
+                Pilih Kas Masuk Uang Pembayaran:
+              </label>
+
+              <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950 rounded-xl border border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSettleMethod('cash');
+                    const cashAcc = cashAccounts[0] || accounts.find((a) => a.type === 'cash');
+                    if (cashAcc) setSettleAccountId(cashAcc.id);
+                  }}
+                  className={`py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition cursor-pointer ${
+                    settleMethod === 'cash'
+                      ? 'bg-amber-500 text-slate-950 shadow-md font-bold'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                  }`}
+                >
+                  <Wallet className="w-4 h-4" />
+                  <span>Tunai (Kas Laci)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSettleMethod('bank');
+                    const firstBank = bankAndEwalletAccounts[0];
+                    if (firstBank) setSettleAccountId(firstBank.id);
+                  }}
+                  className={`py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition cursor-pointer ${
+                    settleMethod === 'bank'
+                      ? 'bg-blue-600 text-white shadow-md font-bold'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                  }`}
+                >
+                  <Building2 className="w-4 h-4" />
+                  <span>Transfer / E-Wallet</span>
+                </button>
+              </div>
+
+              {/* Dynamic Compact Details */}
+              {settleMethod === 'cash' ? (
+                <div className="p-2.5 rounded-xl bg-amber-950/25 border border-amber-800/40 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                      <Wallet className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <span className="font-bold text-white text-xs block">
+                        {cashAccounts[0]?.name || 'Uang Kas Laci Toko'}
+                      </span>
+                      <span className="text-[11px] text-slate-400 font-mono">
+                        Saldo saat ini: <strong className="text-slate-200">{formatRupiah(cashAccounts[0]?.balance || 0)}</strong>
+                      </span>
+                    </div>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-950 text-emerald-300 border border-emerald-800 font-semibold shrink-0">
+                    + Menambah Kas Laci
+                  </span>
+                </div>
+              ) : (
+                <div className="p-2.5 rounded-xl bg-blue-950/25 border border-blue-800/40 space-y-1 text-xs">
+                  <div className="flex justify-between items-center text-[10px] text-slate-400 mb-0.5">
+                    <span>Pilih Rekening Penerima:</span>
+                    <span className="text-blue-300 font-mono">{bankAndEwalletAccounts.length} Rekening Terdaftar</span>
+                  </div>
+                  <select
+                    value={settleAccountId}
+                    onChange={(e) => setSettleAccountId(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white font-medium focus:outline-none focus:border-blue-500"
+                  >
+                    {bankAndEwalletAccounts.map((acc) => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.name} — Saldo: {formatRupiah(acc.balance)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            {/* Inline Compact Sync Notice */}
+            <div className="text-[11px] text-emerald-300 bg-emerald-950/40 border border-emerald-800/50 rounded-xl px-3 py-1.5 flex items-center gap-2">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span className="truncate">
+                Uang <strong className="font-mono text-emerald-200 font-bold">{formatRupiah(itemToSettle.amount)}</strong> otomatis masuk menambah{' '}
+                <strong className="text-white">
+                  {settleMethod === 'cash'
+                    ? 'Kas Laci'
+                    : accounts.find((a) => a.id === settleAccountId)?.name || 'rekening'}
+                </strong>.
+              </span>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setItemToSettle(null)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmSettle}
+                className="flex-1 py-2.5 rounded-xl bg-[#00a86b] hover:bg-[#009b63] active:scale-95 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-950/40 transition"
+              >
+                <Check className="w-4 h-4" />
+                <span>Ya, Lunaskan Sekarang</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: KONFIRMASI HAPUS CATATAN KASBON (DELETE)                            */}
+      {/* ========================================================================= */}
+      {itemToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl text-white space-y-4">
+            <div className="flex items-center gap-3 pb-2 border-b border-slate-800 text-rose-400">
+              <div className="w-10 h-10 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-white">Hapus Catatan Kasbon?</h3>
+                <p className="text-xs text-slate-400">Tindakan ini tidak dapat dibatalkan</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800/80 space-y-1">
+              <div className="text-xs font-semibold text-white">{itemToDelete.customerName}</div>
+              <div className="text-sm font-bold font-mono text-amber-400">
+                {formatRupiah(itemToDelete.amount)}
+              </div>
+              <div className="text-xs text-slate-400">{itemToDelete.description}</div>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Apakah Anda yakin ingin menghapus catatan kasbon ini dari daftar? Riwayat hutang pelanggan akan dihapus secara permanen.
+            </p>
+
+            <div className="flex gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setItemToDelete(null)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-rose-950/40 transition"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Ya, Hapus</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: BUKU KONTAK PELANGGAN (SYNC DARI HP / VCF / DAFTAR)                  */}
+      {/* ========================================================================= */}
       {isContactModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm overflow-y-auto">
           <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl overflow-hidden my-6">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-800/60">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center">
+                <div className="w-9 h-9 rounded-xl bg-[#00a86b]/20 text-[#00a86b] flex items-center justify-center">
                   <Smartphone className="w-5 h-5" />
                 </div>
                 <div>
                   <h3 className="font-bold text-white text-base">Pilih Kontak Pelanggan</h3>
-                  <p className="text-[11px] text-slate-400">Sinkronkan nama dan nomor WhatsApp dari perangkat</p>
+                  <p className="text-[11px] text-slate-400">Sinkronkan nama dan nomor WhatsApp pelanggan</p>
                 </div>
               </div>
               <button
@@ -865,15 +1193,15 @@ Pembayaran bisa dilakukan secara tunai di konter atau transfer ya kak. Terima ka
               <button
                 type="button"
                 onClick={handlePickDeviceContact}
-                className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white font-bold text-xs flex items-center justify-between shadow-lg shadow-blue-950/60 transition group active:scale-95"
+                className="w-full py-3 px-4 rounded-2xl bg-[#00a86b] hover:bg-[#009b63] text-white font-bold text-xs flex items-center justify-between shadow-lg shadow-emerald-950/60 transition group active:scale-95"
               >
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center group-hover:scale-110 transition">
-                    <Smartphone className="w-4 h-4 text-cyan-200" />
+                    <Smartphone className="w-4 h-4 text-emerald-100" />
                   </div>
                   <div className="text-left">
                     <span className="block font-bold">Buka Buku Telepon HP / Tablet</span>
-                    <span className="text-[10px] text-cyan-100 font-normal">
+                    <span className="text-[10px] text-emerald-100 font-normal">
                       Pilih langsung dari kontak tersimpan di perangkat
                     </span>
                   </div>
@@ -883,24 +1211,13 @@ Pembayaran bisa dilakukan secara tunai di konter atau transfer ya kak. Terima ka
                 </span>
               </button>
 
-              {/* Info Tips Sinkronisasi Kontak */}
-              <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 text-[11px] text-slate-300 leading-relaxed space-y-1">
-                <div className="flex items-center gap-1.5 font-bold text-cyan-300">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Dukungan Kontak Perangkat</span>
-                </div>
-                <p className="text-slate-400">
-                  Pada smartphone dan tablet Android (Chrome), sistem akan langsung menampilkan dialog buku telepon HP untuk memilih kontak pelanggan secara instan.
-                </p>
-              </div>
-
               {/* Upload File Kontak .VCF jika ingin impor dari HP */}
               <div className="flex items-center justify-between p-3 bg-slate-950/90 rounded-2xl border border-dashed border-slate-800">
                 <div>
                   <span className="font-bold text-white block">Impor File Kontak (.VCF / vCard):</span>
                   <span className="text-[10px] text-slate-500">Ekspor kontak dari HP lalu pilih filenya</span>
                 </div>
-                <label className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-cyan-300 font-semibold text-xs border border-slate-700 cursor-pointer flex items-center gap-1.5 transition">
+                <label className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-300 font-semibold text-xs border border-slate-700 cursor-pointer flex items-center gap-1.5 transition">
                   <Upload className="w-3.5 h-3.5" />
                   <span>Pilih File</span>
                   <input
@@ -920,7 +1237,7 @@ Pembayaran bisa dilakukan secara tunai di konter atau transfer ya kak. Terima ka
                   placeholder="Cari nama atau nomor kontak pelanggan toko..."
                   value={contactSearchQuery}
                   onChange={(e) => setContactSearchQuery(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#00a86b]"
                 />
               </div>
 
@@ -936,14 +1253,14 @@ Pembayaran bisa dilakukan secara tunai di konter atau transfer ya kak. Terima ka
                       <div
                         key={idx}
                         onClick={() => handleSelectContactFromList(contact)}
-                        className="p-3 rounded-2xl bg-slate-950 hover:bg-slate-800/80 border border-slate-800/80 hover:border-cyan-500/50 cursor-pointer transition flex items-center justify-between group"
+                        className="p-3 rounded-2xl bg-slate-950 hover:bg-slate-800/80 border border-slate-800/80 hover:border-emerald-500/50 cursor-pointer transition flex items-center justify-between group"
                       >
                         <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-600 text-white font-bold flex items-center justify-center text-xs">
+                          <div className="w-8 h-8 rounded-xl bg-emerald-600/30 text-emerald-300 font-bold flex items-center justify-center text-xs">
                             {contact.name.charAt(0).toUpperCase()}
                           </div>
                           <div>
-                            <h5 className="font-bold text-white text-xs group-hover:text-cyan-300 transition">
+                            <h5 className="font-bold text-white text-xs group-hover:text-emerald-300 transition">
                               {contact.name}
                             </h5>
                             {contact.phone && (
@@ -956,7 +1273,7 @@ Pembayaran bisa dilakukan secara tunai di konter atau transfer ya kak. Terima ka
 
                         <button
                           type="button"
-                          className="px-2.5 py-1 rounded-lg bg-cyan-600/20 text-cyan-300 font-semibold text-[11px] group-hover:bg-cyan-600 group-hover:text-white transition"
+                          className="px-2.5 py-1 rounded-lg bg-emerald-600/20 text-emerald-300 font-semibold text-[11px] group-hover:bg-[#00a86b] group-hover:text-white transition"
                         >
                           Pilih
                         </button>

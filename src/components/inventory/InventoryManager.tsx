@@ -15,7 +15,9 @@ import {
   X,
   Check,
   RefreshCw,
+  ClipboardCheck,
 } from 'lucide-react';
+import { StockOpnameModal } from './StockOpnameModal';
 
 export const InventoryManager: React.FC = () => {
   const { accessories, addAccessory, updateAccessory, deleteAccessory, adjustAccessoryStock } = useApp();
@@ -25,6 +27,8 @@ export const InventoryManager: React.FC = () => {
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<AccessoryItem | null>(null);
+  const [isStockOpnameOpen, setIsStockOpnameOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<AccessoryItem | null>(null);
 
   // Form State
   const [formName, setFormName] = useState('');
@@ -44,14 +48,20 @@ export const InventoryManager: React.FC = () => {
   const lowStockItems = useMemo(() => accessories.filter((a) => a.stock <= a.minStock), [accessories]);
 
   const filteredItems = useMemo(() => {
-    return accessories.filter((item) => {
+    const term = searchTerm.trim().toLowerCase();
+    const result = accessories.filter((item) => {
       const matchCat = selectedCategory === 'Semua' || item.category === selectedCategory;
       const matchSearch =
-        item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.sku.toLowerCase().includes(searchTerm.toLowerCase());
+        !term ||
+        item.name.toLowerCase().includes(term) ||
+        item.sku.toLowerCase().includes(term);
       const matchLowStock = showLowStockOnly ? item.stock <= item.minStock : true;
       return matchCat && matchSearch && matchLowStock;
     });
+    return [...result].sort((a, b) =>
+      (a.sku || '').localeCompare(b.sku || '', undefined, { numeric: true }) ||
+      (a.name || '').localeCompare(b.name || '')
+    );
   }, [accessories, selectedCategory, searchTerm, showLowStockOnly]);
 
   const handleOpenAddModal = () => {
@@ -194,13 +204,25 @@ export const InventoryManager: React.FC = () => {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleOpenAddModal}
-          className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-blue-900/30 transition shrink-0"
-        >
-          <Plus className="w-4 h-4" /> Tambah Aksesoris Baru
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsStockOpnameOpen(true)}
+            className="px-3.5 py-2.5 rounded-xl bg-purple-950/70 hover:bg-purple-900/80 text-purple-200 font-semibold text-xs flex items-center justify-center gap-1.5 border border-purple-700/60 shadow-lg shadow-purple-950/30 transition cursor-pointer active:scale-95"
+            title="Sesi audit fisik stok dan penyesuaian riil"
+          >
+            <ClipboardCheck className="w-4 h-4 text-purple-400" />
+            <span>Stock Opname</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleOpenAddModal}
+            className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-blue-900/30 transition shrink-0 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" /> Tambah Aksesoris Baru
+          </button>
+        </div>
       </div>
 
       {/* Stock Items Table */}
@@ -298,12 +320,8 @@ export const InventoryManager: React.FC = () => {
                         </button>
                         <button
                           type="button"
-                          onClick={() => {
-                            if (confirm(`Yakin ingin menghapus ${item.name}?`)) {
-                              deleteAccessory(item.id);
-                            }
-                          }}
-                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-red-600 text-slate-400 hover:text-white transition"
+                          onClick={() => setItemToDelete(item)}
+                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-900/60 text-slate-400 hover:text-rose-200 transition"
                           title="Hapus Produk"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -456,6 +474,70 @@ export const InventoryManager: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Stock Opname Modal */}
+      <StockOpnameModal
+        isOpen={isStockOpnameOpen}
+        onClose={() => setIsStockOpnameOpen(false)}
+      />
+
+      {/* Modal Konfirmasi Hapus Produk Aksesoris (In-App Reliable Dialog) */}
+      {itemToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl text-white space-y-4">
+            <div className="flex items-center gap-3 pb-2 border-b border-slate-800 text-rose-400">
+              <div className="w-10 h-10 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-white">Hapus Produk?</h3>
+                <p className="text-xs text-slate-400">Tindakan ini tidak dapat dibatalkan</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800/80 space-y-1.5">
+              <div className="text-xs font-semibold text-white">{itemToDelete.name}</div>
+              <div className="flex justify-between items-center text-xs text-slate-400">
+                <span>Kategori:</span>
+                <span className="text-slate-300">{itemToDelete.category}</span>
+              </div>
+              <div className="flex justify-between items-center text-xs text-slate-400">
+                <span>Stok Tersisa:</span>
+                <span className="font-mono font-bold text-white">{itemToDelete.stock} unit</span>
+              </div>
+              <div className="flex justify-between items-center text-xs pt-1 border-t border-slate-850">
+                <span className="text-slate-400">Harga Jual:</span>
+                <span className="font-mono font-bold text-emerald-400">{formatRupiah(itemToDelete.priceSell)}</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Apakah Anda yakin ingin menghapus produk ini dari daftar inventaris aksesoris konter?
+            </p>
+
+            <div className="flex gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setItemToDelete(null)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  deleteAccessory(itemToDelete.id);
+                  setItemToDelete(null);
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-rose-950/40 transition"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Ya, Hapus</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

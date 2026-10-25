@@ -6,6 +6,7 @@ import {
   buildReceiptWhatsAppText,
   openWhatsAppReceipt,
 } from '../../utils/formatters';
+import { bluetoothPrinter, buildRawBTUrl } from '../../utils/bluetoothPrinter';
 import {
   Printer,
   Share2,
@@ -15,6 +16,10 @@ import {
   Smartphone,
   CheckCircle2,
   Send,
+  Bluetooth,
+  Loader2,
+  AlertCircle,
+  HelpCircle,
 } from 'lucide-react';
 
 export const ReceiptModal: React.FC = () => {
@@ -22,14 +27,52 @@ export const ReceiptModal: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [overridePhone, setOverridePhone] = useState('');
   const [showPhonePrompt, setShowPhonePrompt] = useState(false);
+  const [isPrintingBT, setIsPrintingBT] = useState(false);
+  const [btStatus, setBtStatus] = useState<{ type: 'idle' | 'success' | 'error' | 'info'; message: string }>({
+    type: 'idle',
+    message: '',
+  });
+  const [showBtGuide, setShowBtGuide] = useState(false);
 
   if (!activeReceipt) return null;
 
   const trx = activeReceipt;
   const targetPhone = overridePhone || trx.targetNumber || '';
 
-  const handlePrint = () => {
+  const handlePrintSystem = () => {
     window.print();
+  };
+
+  const handlePrintBluetooth = async () => {
+    setIsPrintingBT(true);
+    setBtStatus({ type: 'info', message: 'Mencari & menghubungkan ke Printer Bluetooth...' });
+    try {
+      await bluetoothPrinter.printTransaction(trx, settings);
+      setBtStatus({ type: 'success', message: 'Struk berhasil dicetak ke Printer Bluetooth!' });
+      setTimeout(() => setBtStatus({ type: 'idle', message: '' }), 4000);
+    } catch (err: any) {
+      console.warn('Bluetooth print error:', err);
+      const isAbort = err?.name === 'NotFoundError' || err?.message?.includes('User cancelled');
+      if (isAbort) {
+        setBtStatus({ type: 'idle', message: '' });
+      } else {
+        setBtStatus({
+          type: 'error',
+          message: err?.message || 'Gagal terhubung ke printer Bluetooth. Nyalakan printer atau gunakan opsi RawBT.',
+        });
+      }
+    } finally {
+      setIsPrintingBT(false);
+    }
+  };
+
+  const handlePrintRawBT = () => {
+    try {
+      const url = buildRawBTUrl(trx, settings);
+      window.location.href = url;
+    } catch (e: any) {
+      alert('Gagal menyiapkan format RawBT: ' + e?.message);
+    }
   };
 
   const handleCopyText = () => {
@@ -73,29 +116,128 @@ export const ReceiptModal: React.FC = () => {
           </button>
         </div>
 
-        {/* Action Buttons Top */}
-        <div className="p-4 bg-slate-800/40 border-b border-slate-800 flex items-center gap-2">
-          <button
-            onClick={handlePrint}
-            className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium text-sm transition shadow-lg shadow-blue-900/30 active:scale-95"
-          >
-            <Printer className="w-4 h-4" />
-            Cetak Struk
-          </button>
-          <button
-            onClick={handleShareWhatsApp}
-            className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm transition shadow-lg shadow-emerald-900/30 active:scale-95"
-          >
-            <Share2 className="w-4 h-4" />
-            Kirim ke WA
-          </button>
-          <button
-            onClick={handleCopyText}
-            title="Salin Teks Nota"
-            className="p-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm transition"
-          >
-            {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-          </button>
+        {/* Action Buttons Top - Thermal Bluetooth First */}
+        <div className="p-3.5 bg-slate-800/50 border-b border-slate-800 space-y-2">
+          <div className="flex items-center gap-2">
+            {/* Direct Bluetooth Thermal Button */}
+            <button
+              onClick={handlePrintBluetooth}
+              disabled={isPrintingBT}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs transition shadow-lg shadow-blue-900/30 active:scale-95"
+            >
+              {isPrintingBT ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  <span>Menghubungkan...</span>
+                </>
+              ) : (
+                <>
+                  <Bluetooth className="w-4 h-4 text-sky-200" />
+                  <span>Cetak Bluetooth</span>
+                </>
+              )}
+            </button>
+
+            {/* Android RawBT Button */}
+            <button
+              onClick={handlePrintRawBT}
+              title="Cetak via aplikasi RawBT Android"
+              className="px-3 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition shadow-md active:scale-95 flex items-center gap-1.5"
+            >
+              <Smartphone className="w-4 h-4" />
+              <span>RawBT</span>
+            </button>
+
+            {/* Standard Browser/System Print */}
+            <button
+              onClick={handlePrintSystem}
+              title="Cetak via dialog printer sistem / PDF"
+              className="p-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs transition"
+            >
+              <Printer className="w-4 h-4" />
+            </button>
+
+            {/* WA Share */}
+            <button
+              onClick={handleShareWhatsApp}
+              title="Kirim Struk ke WhatsApp Pelanggan"
+              className="p-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs transition"
+            >
+              <Share2 className="w-4 h-4" />
+            </button>
+
+            {/* Copy Text */}
+            <button
+              onClick={handleCopyText}
+              title="Salin Teks Nota"
+              className="p-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs transition"
+            >
+              {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+            </button>
+
+            {/* Help Guide Toggle */}
+            <button
+              onClick={() => setShowBtGuide(!showBtGuide)}
+              title="Panduan Printer Bluetooth"
+              className={`p-2.5 rounded-xl transition ${
+                showBtGuide ? 'bg-amber-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+              }`}
+            >
+              <HelpCircle className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Bluetooth Status Notification */}
+          {btStatus.message && (
+            <div
+              className={`flex items-start gap-2 p-2.5 rounded-xl text-xs ${
+                btStatus.type === 'error'
+                  ? 'bg-rose-950/60 border border-rose-800/80 text-rose-200'
+                  : btStatus.type === 'success'
+                  ? 'bg-emerald-950/60 border border-emerald-800/80 text-emerald-200'
+                  : 'bg-blue-950/60 border border-blue-800/80 text-blue-200'
+              }`}
+            >
+              {btStatus.type === 'error' ? (
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              ) : btStatus.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              ) : (
+                <Loader2 className="w-4 h-4 text-blue-400 shrink-0 animate-spin mt-0.5" />
+              )}
+              <div className="flex-1 text-[11px] leading-snug">{btStatus.message}</div>
+              <button
+                onClick={() => setBtStatus({ type: 'idle', message: '' })}
+                className="text-slate-400 hover:text-white ml-1"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Guide Drawer */}
+          {showBtGuide && (
+            <div className="p-3 bg-slate-950/90 rounded-xl border border-slate-700/80 text-[11px] text-slate-300 space-y-1.5 animate-fadeIn">
+              <div className="font-bold text-amber-300 flex items-center gap-1.5">
+                <Bluetooth className="w-3.5 h-3.5 text-blue-400" />
+                Panduan Menggunakan Printer Bluetooth Thermal:
+              </div>
+              <ol className="list-decimal list-inside space-y-1 text-slate-400 text-[10.5px]">
+                <li>
+                  <strong className="text-slate-200">Nyalakan Printer:</strong> Pastikan printer thermal Bluetooth dalam keadaan ON dan ada kertas (58mm / 80mm).
+                </li>
+                <li>
+                  <strong className="text-slate-200">Tombol &quot;Cetak Bluetooth&quot;:</strong> Klik tombol biru, pilih nama printer Anda di daftar Bluetooth browser (misal: RPP02N, PT-210, MPT-II, Iware, Panda).
+                </li>
+                <li>
+                  <strong className="text-slate-200">Pengguna HP Android:</strong> Bisa juga gunakan tombol &quot;RawBT&quot; jika Anda menginstall aplikasi RawBT Driver di HP untuk cetak instan tanpa dialog.
+                </li>
+                <li>
+                  <strong className="text-slate-200">Browser / Laptop:</strong> Jika browser tidak mendukung Bluetooth langsung, gunakan icon Printer untuk cetak sistem.
+                </li>
+              </ol>
+            </div>
+          )}
         </div>
 
         {/* WhatsApp Phone Prompt if targetNumber is empty */}

@@ -206,19 +206,22 @@ export const FinanceManager: React.FC = () => {
     }
   };
 
+  const [accountToDelete, setAccountToDelete] = useState<AccountBalance | null>(null);
+
   const handleDeleteAccount = (acc: AccountBalance) => {
+    console.log('[FinanceManager] handleDeleteAccount invoked for account:', acc.id, acc.name);
     if (acc.id === 'acc-cash') {
-      alert('Akun Kas Laci Konter adalah akun kasir utama dan tidak boleh dihapus.');
+      console.warn('[FinanceManager] Cannot delete primary cash drawer account: acc-cash');
       return;
     }
 
     const doDelete = () => {
-      if (confirm(`Apakah Anda yakin ingin menghapus akun "${acc.name}"? Saldo tercatat saat ini: ${formatRupiah(acc.balance)}.`)) {
-        deleteAccount(acc.id);
-      }
+      console.log('[FinanceManager] Setting accountToDelete state for:', acc.id, acc.name);
+      setAccountToDelete(acc);
     };
 
     if (viewMode !== 'owner' && !isOwnerUnlocked) {
+      console.log('[FinanceManager] Requesting owner PIN before opening delete dialog for account:', acc.name);
       requestOwnerPin('Hapus Akun Bank / Dompet', doDelete, 'Masukkan PIN Pemilik untuk menghapus akun');
     } else {
       doDelete();
@@ -335,8 +338,11 @@ export const FinanceManager: React.FC = () => {
             {acc.id !== 'acc-cash' && (
               <button
                 type="button"
-                onClick={() => handleDeleteAccount(acc)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 transition"
+                onClick={() => {
+                  console.log('[FinanceManager] Trash icon clicked for account:', acc.id, acc.name);
+                  handleDeleteAccount(acc);
+                }}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 transition cursor-pointer"
                 title="Hapus Akun Ini"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -1167,6 +1173,66 @@ export const FinanceManager: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Hapus Akun Keuangan (In-App Reliable Dialog) */}
+      {accountToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl text-white space-y-4">
+            <div className="flex items-center gap-3 pb-2 border-b border-slate-800 text-rose-400">
+              <div className="w-10 h-10 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-white">Hapus Akun Keuangan?</h3>
+                <p className="text-xs text-slate-400">Tindakan ini tidak dapat dibatalkan</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800/80 space-y-1.5">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400">Nama Akun:</span>
+                <span className="font-bold text-white">{accountToDelete.name}</span>
+              </div>
+              {accountToDelete.accountNumber && (
+                <div className="flex justify-between items-center text-xs text-slate-400">
+                  <span>No. Rekening / ID:</span>
+                  <span className="font-mono text-slate-300">{accountToDelete.accountNumber}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center text-xs pt-1 border-t border-slate-850">
+                <span className="text-slate-400">Saldo Tercatat:</span>
+                <span className="font-mono font-bold text-emerald-400">{formatRupiah(accountToDelete.balance)}</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Apakah Anda yakin ingin menghapus akun ini dari daftar buku kas & bank konter?
+            </p>
+
+            <div className="flex gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setAccountToDelete(null)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  console.log('[FinanceManager] Confirming deletion for account:', accountToDelete.id, accountToDelete.name);
+                  deleteAccount(accountToDelete.id);
+                  setAccountToDelete(null);
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-rose-950/40 transition cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Ya, Hapus</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -13,6 +13,8 @@ import {
   StaffPermissions,
   AuthUser,
   StaffAccount,
+  StockOpnameItem,
+  StockOpnameRecord,
 } from '../types';
 import {
   INITIAL_SETTINGS,
@@ -68,6 +70,11 @@ interface AppContextType {
   updateAccessory: (id: string, item: Partial<AccessoryItem>) => void;
   deleteAccessory: (id: string) => void;
   adjustAccessoryStock: (id: string, delta: number) => void;
+
+  // Stock Opname
+  stockOpnameList: StockOpnameRecord[];
+  applyStockOpname: (params: { auditorName: string; notes?: string; items: StockOpnameItem[] }) => StockOpnameRecord;
+  deleteStockOpnameRecord: (id: string) => void;
 
   pulsaProducts: PulsaProduct[];
   updatePulsaProduct: (id: string, updates: Partial<PulsaProduct>) => void;
@@ -155,6 +162,7 @@ const STORAGE_KEYS = {
   TRANSACTIONS: 'nkstorecell_transactions_v2',
   KASBON: 'nkstorecell_kasbon_v2',
   SHIFTS: 'nkstorecell_shifts_v2',
+  STOCK_OPNAME: 'nkstorecell_stockopname_v2',
   AUTH_SESSION: 'nkstorecell_auth_session_v2',
 };
 
@@ -181,6 +189,63 @@ if (typeof window !== 'undefined') {
     } catch {}
   });
 }
+
+// Stable sorting and equality check helpers to prevent flickering and unnecessary re-renders
+const sortAccessories = (items: AccessoryItem[]): AccessoryItem[] => {
+  return [...items].sort((a, b) => {
+    return (
+      (a.sku || '').localeCompare(b.sku || '', undefined, { numeric: true, sensitivity: 'base' }) ||
+      (a.name || '').localeCompare(b.name || '') ||
+      (a.id || '').localeCompare(b.id || '')
+    );
+  });
+};
+
+const areAccessoriesEqual = (prev: AccessoryItem[], next: AccessoryItem[]): boolean => {
+  if (prev === next) return true;
+  if (!prev || !next) return false;
+  if (prev.length !== next.length) return false;
+  for (let i = 0; i < prev.length; i++) {
+    const a = prev[i];
+    const b = next[i];
+    if (
+      a.id !== b.id ||
+      a.stock !== b.stock ||
+      a.minStock !== b.minStock ||
+      a.priceSell !== b.priceSell ||
+      a.priceCost !== b.priceCost ||
+      a.name !== b.name ||
+      a.category !== b.category ||
+      a.sku !== b.sku
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const sortAccounts = (items: AccountBalance[]): AccountBalance[] => {
+  return [...items].sort((a, b) => (a.id || '').localeCompare(b.id || ''));
+};
+
+const areAccountsEqual = (prev: AccountBalance[], next: AccountBalance[]): boolean => {
+  if (prev === next) return true;
+  if (!prev || !next) return false;
+  if (prev.length !== next.length) return false;
+  for (let i = 0; i < prev.length; i++) {
+    const a = prev[i];
+    const b = next[i];
+    if (
+      a.id !== b.id ||
+      a.balance !== b.balance ||
+      a.name !== b.name ||
+      a.accountNumber !== b.accountNumber
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // 1. Settings State
@@ -211,16 +276,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return INITIAL_SETTINGS;
   });
 
-  // 2. Accounts State
+  // 2. Accounts State (Stably sorted)
   const [accounts, setAccounts] = useState<AccountBalance[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.ACCOUNTS);
-    return saved ? JSON.parse(saved) : INITIAL_ACCOUNTS;
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.ACCOUNTS);
+      return saved ? sortAccounts(JSON.parse(saved)) : sortAccounts(INITIAL_ACCOUNTS);
+    } catch {
+      return sortAccounts(INITIAL_ACCOUNTS);
+    }
   });
 
-  // 3. Accessories State
+  // 3. Accessories State (Stably sorted)
   const [accessories, setAccessories] = useState<AccessoryItem[]>(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.ACCESSORIES);
-    return saved ? JSON.parse(saved) : INITIAL_ACCESSORIES;
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.ACCESSORIES);
+      return saved ? sortAccessories(JSON.parse(saved)) : sortAccessories(INITIAL_ACCESSORIES);
+    } catch {
+      return sortAccessories(INITIAL_ACCESSORIES);
+    }
   });
 
   // 4. Pulsa Products State
@@ -245,6 +318,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [shifts, setShifts] = useState<ShiftRecord[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.SHIFTS);
     return saved ? JSON.parse(saved) : INITIAL_SHIFTS;
+  });
+
+  // 7b. Stock Opname State (Physical Inventory Audits)
+  const [stockOpnameList, setStockOpnameList] = useState<StockOpnameRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.STOCK_OPNAME);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
   });
 
   // Active open shift
@@ -583,15 +666,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => unsub();
   }, []);
 
-  // 2. Real-time Firestore Listener for Accounts
+  // 2. Real-time Firestore Listener for Accounts (Stably sorted, diff-checked)
   useEffect(() => {
     const unsub = onSnapshot(
       collection(db, 'accounts'),
       (snap) => {
         if (!snap.empty) {
-          const cloudAccounts = snap.docs.map((d) => ({ ...d.data(), id: d.id } as AccountBalance));
-          setAccounts(cloudAccounts);
+          const cloudAccounts = sortAccounts(
+            snap.docs.map((d) => ({ ...d.data(), id: d.id } as AccountBalance))
+          );
+          setAccounts((prev) => (areAccountsEqual(prev, cloudAccounts) ? prev : cloudAccounts));
         } else {
+          // If Firestore is empty, seed initial accounts without clearing local state
           INITIAL_ACCOUNTS.forEach((acc) => {
             setDoc(doc(db, 'accounts', acc.id), acc).catch((err) =>
               console.warn('Seed account note:', err)
@@ -604,19 +690,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => unsub();
   }, []);
 
-  // 3. Real-time Firestore Listener for Accessories
+  // 3. Real-time Firestore Listener for Accessories (Stably sorted, diff-checked, preserves local items)
   useEffect(() => {
     const unsub = onSnapshot(
       collection(db, 'accessories'),
       (snap) => {
         if (!snap.empty) {
-          const cloudAccessories = snap.docs.map((d) => ({ ...d.data(), id: d.id } as AccessoryItem));
-          setAccessories(cloudAccessories);
+          const cloudAccessories = sortAccessories(
+            snap.docs.map((d) => ({ ...d.data(), id: d.id } as AccessoryItem))
+          );
+          setAccessories((prev) => {
+            // Check if local state has items that are not in cloud yet (e.g. newly created), keep them and push to cloud
+            const cloudIds = new Set(cloudAccessories.map((c) => c.id));
+            const missingFromCloud = prev.filter((p) => !cloudIds.has(p.id));
+
+            if (missingFromCloud.length > 0) {
+              missingFromCloud.forEach((item) => {
+                setDoc(doc(db, 'accessories', item.id), item).catch((err) =>
+                  console.warn('Sync missing accessory to Firestore note:', err)
+                );
+              });
+              const merged = sortAccessories([...cloudAccessories, ...missingFromCloud]);
+              return areAccessoriesEqual(prev, merged) ? prev : merged;
+            }
+
+            return areAccessoriesEqual(prev, cloudAccessories) ? prev : cloudAccessories;
+          });
         } else {
-          INITIAL_ACCESSORIES.forEach((item) => {
-            setDoc(doc(db, 'accessories', item.id), item).catch((err) =>
-              console.warn('Seed accessory note:', err)
-            );
+          // If Firestore is empty, do NOT wipe local state! Seed existing or initial items in the background
+          setAccessories((prev) => {
+            const itemsToSeed = prev && prev.length > 0 ? prev : INITIAL_ACCESSORIES;
+            itemsToSeed.forEach((item) => {
+              setDoc(doc(db, 'accessories', item.id), item).catch((err) =>
+                console.warn('Seed accessory note:', err)
+              );
+            });
+            return itemsToSeed;
           });
         }
       },
@@ -658,6 +767,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   // 6. Real-time Firestore Listener for Shifts
+  // 6. Real-time Firestore Listener for Shifts
   useEffect(() => {
     const unsub = onSnapshot(
       collection(db, 'shifts'),
@@ -669,6 +779,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       },
       (error) => console.warn('Firestore shifts listener note:', error)
+    );
+    return () => unsub();
+  }, []);
+
+  // 7. Real-time Firestore Listener for Stock Opname Sessions
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, 'stockOpname'),
+      (snap) => {
+        if (!snap.empty) {
+          const cloudOpnames = snap.docs.map((d) => ({ ...d.data(), id: d.id } as StockOpnameRecord));
+          cloudOpnames.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          setStockOpnameList(cloudOpnames);
+        }
+      },
+      (error) => console.warn('Firestore stockOpname listener note:', error)
     );
     return () => unsub();
   }, []);
@@ -702,6 +828,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem(STORAGE_KEYS.SHIFTS, JSON.stringify(shifts));
   }, [shifts]);
 
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.STOCK_OPNAME, JSON.stringify(stockOpnameList));
+  }, [stockOpnameList]);
+
   // Update Settings
   const updateSettings = (newSettings: Partial<StoreSettings>) => {
     setSettings((prev) => ({ ...prev, ...newSettings }));
@@ -715,6 +845,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAccounts((prev) =>
       prev.map((acc) => (acc.id === accountId ? { ...acc, balance: newBalance } : acc))
     );
+    setDoc(doc(db, 'accounts', accountId), { balance: newBalance }, { merge: true }).catch((err) =>
+      console.warn('Sync update account balance error:', err)
+    );
   };
 
   // Add new account (Bank, E-Wallet, Cash, Server)
@@ -724,26 +857,55 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: 'acc-' + Date.now(),
     };
     setAccounts((prev) => [...prev, newAcc]);
+    setDoc(doc(db, 'accounts', newAcc.id), newAcc).catch((err) =>
+      console.warn('Sync add account to Firestore error:', err)
+    );
   };
 
   const updateAccount = (id: string, updates: Partial<AccountBalance>) => {
     setAccounts((prev) =>
       prev.map((acc) => (acc.id === id ? { ...acc, ...updates } : acc))
     );
+    setDoc(doc(db, 'accounts', id), updates, { merge: true }).catch((err) =>
+      console.warn('Sync update account to Firestore error:', err)
+    );
   };
 
   const deleteAccount = (id: string) => {
-    setAccounts((prev) => prev.filter((acc) => acc.id !== id));
+    console.log('[AppContext] deleteAccount triggered for ID:', id);
+    setAccounts((prev) => {
+      const next = prev.filter((acc) => acc.id !== id);
+      console.log('[AppContext] setAccounts state updated. Remaining accounts count:', next.length);
+      return next;
+    });
+    deleteDoc(doc(db, 'accounts', id))
+      .then(() => console.log('[AppContext] Successfully deleted account document from Firestore:', id))
+      .catch((err) => console.warn('[AppContext] Firestore delete account error:', err));
   };
 
-  // Transfer between accounts
+  // Transfer between accounts (persisted to Firestore & state)
   const transferBetweenAccounts = (fromId: string, toId: string, amount: number, notes: string) => {
+    let fromNewBal = 0;
+    let toNewBal = 0;
     setAccounts((prev) =>
       prev.map((acc) => {
-        if (acc.id === fromId) return { ...acc, balance: acc.balance - amount };
-        if (acc.id === toId) return { ...acc, balance: acc.balance + amount };
+        if (acc.id === fromId) {
+          fromNewBal = acc.balance - amount;
+          return { ...acc, balance: fromNewBal };
+        }
+        if (acc.id === toId) {
+          toNewBal = acc.balance + amount;
+          return { ...acc, balance: toNewBal };
+        }
         return acc;
       })
+    );
+
+    setDoc(doc(db, 'accounts', fromId), { balance: fromNewBal }, { merge: true }).catch((err) =>
+      console.warn('Sync transfer fromAccount error:', err)
+    );
+    setDoc(doc(db, 'accounts', toId), { balance: toNewBal }, { merge: true }).catch((err) =>
+      console.warn('Sync transfer toAccount error:', err)
     );
   };
 
@@ -752,44 +914,165 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (mutation.type === 'transfer' && mutation.fromAccountId && mutation.toAccountId) {
       transferBetweenAccounts(mutation.fromAccountId, mutation.toAccountId, mutation.amount, mutation.notes);
     } else if (mutation.type === 'masuk' && mutation.toAccountId) {
+      let newBal = 0;
       setAccounts((prev) =>
-        prev.map((acc) =>
-          acc.id === mutation.toAccountId ? { ...acc, balance: acc.balance + mutation.amount } : acc
-        )
+        prev.map((acc) => {
+          if (acc.id === mutation.toAccountId) {
+            newBal = acc.balance + mutation.amount;
+            return { ...acc, balance: newBal };
+          }
+          return acc;
+        })
+      );
+      setDoc(doc(db, 'accounts', mutation.toAccountId), { balance: newBal }, { merge: true }).catch((err) =>
+        console.warn('Sync adjustCashMutation masuk error:', err)
       );
     } else if (mutation.type === 'keluar' && mutation.fromAccountId) {
+      let newBal = 0;
       setAccounts((prev) =>
-        prev.map((acc) =>
-          acc.id === mutation.fromAccountId ? { ...acc, balance: acc.balance - mutation.amount } : acc
-        )
+        prev.map((acc) => {
+          if (acc.id === mutation.fromAccountId) {
+            newBal = acc.balance - mutation.amount;
+            return { ...acc, balance: newBal };
+          }
+          return acc;
+        })
+      );
+      setDoc(doc(db, 'accounts', mutation.fromAccountId), { balance: newBal }, { merge: true }).catch((err) =>
+        console.warn('Sync adjustCashMutation keluar error:', err)
       );
     }
   };
 
-  // Accessories management
+  // Accessories management (Stably sorted, synchronized to Firestore)
   const addAccessory = (item: Omit<AccessoryItem, 'id'>) => {
     const newItem: AccessoryItem = {
       ...item,
       id: 'acc-' + Date.now(),
     };
-    setAccessories((prev) => [newItem, ...prev]);
+    setAccessories((prev) => sortAccessories([newItem, ...prev]));
+    setDoc(doc(db, 'accessories', newItem.id), newItem).catch((err) =>
+      console.warn('Sync add accessory error:', err)
+    );
   };
 
   const updateAccessory = (id: string, itemUpdates: Partial<AccessoryItem>) => {
     setAccessories((prev) =>
-      prev.map((it) => (it.id === id ? { ...it, ...itemUpdates } : it))
+      sortAccessories(prev.map((it) => (it.id === id ? { ...it, ...itemUpdates } : it)))
+    );
+    setDoc(doc(db, 'accessories', id), itemUpdates, { merge: true }).catch((err) =>
+      console.warn('Sync update accessory error:', err)
     );
   };
 
   const deleteAccessory = (id: string) => {
-    setAccessories((prev) => prev.filter((it) => it.id !== id));
+    console.log('[AppContext] deleteAccessory triggered for ID:', id);
+    setAccessories((prev) => {
+      const next = prev.filter((it) => it.id !== id);
+      console.log('[AppContext] setAccessories state updated. Remaining accessories count:', next.length);
+      return next;
+    });
+    deleteDoc(doc(db, 'accessories', id))
+      .then(() => console.log('[AppContext] Successfully deleted accessory document from Firestore:', id))
+      .catch((err) => console.warn('Sync delete accessory error from Firestore:', err));
   };
 
   const adjustAccessoryStock = (id: string, delta: number) => {
-    setAccessories((prev) =>
-      prev.map((it) =>
-        it.id === id ? { ...it, stock: Math.max(0, it.stock + delta) } : it
-      )
+    setAccessories((prev) => {
+      const updated = prev.map((it) => {
+        if (it.id === id) {
+          const newStock = Math.max(0, it.stock + delta);
+          setDoc(doc(db, 'accessories', id), { stock: newStock }, { merge: true }).catch((err) =>
+            console.warn('Sync adjust accessory stock error:', err)
+          );
+          return { ...it, stock: newStock };
+        }
+        return it;
+      });
+      return sortAccessories(updated);
+    });
+  };
+
+  // Stock Opname Operations (Audit fisik & koreksi stok aksesoris)
+  const applyStockOpname = (params: {
+    auditorName: string;
+    notes?: string;
+    items: StockOpnameItem[];
+  }): StockOpnameRecord => {
+    const now = new Date();
+    const dateStr = now.toISOString();
+    const dateFormatted = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const randomSuffix = Math.floor(100 + Math.random() * 900);
+    const opnameNumber = `SO-${dateFormatted}-${randomSuffix}`;
+    const id = `so-${Date.now()}`;
+
+    // Calculate totals
+    const totalItemsCounted = params.items.length;
+    const totalSystemUnits = params.items.reduce((sum, it) => sum + it.systemStock, 0);
+    const totalPhysicalUnits = params.items.reduce((sum, it) => sum + it.physicalStock, 0);
+    const totalDifferenceUnits = params.items.reduce((sum, it) => sum + it.difference, 0);
+    const totalCostDifference = params.items.reduce((sum, it) => sum + it.costDifference, 0);
+
+    const record: StockOpnameRecord = {
+      id,
+      opnameNumber,
+      date: dateStr,
+      auditorName: params.auditorName.trim() || 'Petugas Konter',
+      notes: params.notes?.trim() || '',
+      totalItemsCounted,
+      totalSystemUnits,
+      totalPhysicalUnits,
+      totalDifferenceUnits,
+      totalCostDifference,
+      items: params.items,
+      status: 'applied',
+      appliedAt: dateStr,
+    };
+
+    // Update physical accessories inventory stock to match counted physicalStock
+    const physicalStockMap = new Map<string, number>();
+    params.items.forEach((it) => {
+      physicalStockMap.set(it.accessoryId, it.physicalStock);
+    });
+
+    setAccessories((prev) => {
+      const updated = prev.map((acc) => {
+        if (physicalStockMap.has(acc.id)) {
+          const newStock = physicalStockMap.get(acc.id)!;
+          // Only write to Firestore if stock actually changed
+          if (newStock !== acc.stock) {
+            setDoc(doc(db, 'accessories', acc.id), { stock: newStock }, { merge: true }).catch((err) =>
+              console.warn('Sync stock opname accessory stock note:', err)
+            );
+          }
+          return { ...acc, stock: newStock };
+        }
+        return acc;
+      });
+      return sortAccessories(updated);
+    });
+
+    // Save record locally and in Firestore
+    setStockOpnameList((prev) => [record, ...prev]);
+    setDoc(doc(db, 'stockOpname', record.id), record).catch((err) =>
+      console.warn('Sync stock opname record note:', err)
+    );
+
+    try {
+      confetti({
+        particleCount: 50,
+        spread: 70,
+        origin: { y: 0.6 },
+      });
+    } catch {}
+
+    return record;
+  };
+
+  const deleteStockOpnameRecord = (id: string) => {
+    setStockOpnameList((prev) => prev.filter((r) => r.id !== id));
+    deleteDoc(doc(db, 'stockOpname', id)).catch((err) =>
+      console.warn('Sync delete stock opname record note:', err)
     );
   };
 
@@ -854,20 +1137,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...prev.map((s) => (s.status === 'open' ? { ...s, status: 'closed' as const, endTime: new Date().toISOString() } : s)),
     ]);
 
-    // Update initial balances in accounts list for 4 servers
-    setAccounts((prev) =>
-      prev.map((acc) => {
-        if (acc.id === 'acc-cash') {
-          return { ...acc, balance: params.initialCashDrawer };
+    // Update initial balances in accounts list for 4 servers and sync to Firestore
+    setAccounts((prev) => {
+      const serverAccounts = prev.filter((a) => a.type === 'server_pulsa');
+      return prev.map((acc) => {
+        if (acc.id === 'acc-cash' || acc.type === 'cash') {
+          const newBal = params.initialCashDrawer;
+          setDoc(doc(db, 'accounts', acc.id), { balance: newBal }, { merge: true }).catch((err) =>
+            console.warn('Sync open shift cash drawer note:', err)
+          );
+          return { ...acc, balance: newBal };
         }
         for (let i = 0; i < 4; i++) {
-          if (acc.id === `acc-server-${i + 1}`) {
-            return { ...acc, balance: params.serverInitialBalances[i] || 0 };
+          const isTargetServer =
+            acc.id === `acc-server-${i + 1}` ||
+            (serverAccounts[i] && serverAccounts[i].id === acc.id);
+          if (isTargetServer) {
+            const newBal = params.serverInitialBalances[i] || 0;
+            setDoc(doc(db, 'accounts', acc.id), { balance: newBal }, { merge: true }).catch((err) =>
+              console.warn('Sync open shift server note:', err)
+            );
+            return { ...acc, balance: newBal };
           }
         }
         return acc;
-      })
-    );
+      });
+    });
 
     return newShift;
   };
@@ -1049,21 +1344,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setShifts((prev) => prev.map((s) => (s.id === activeShift.id ? closedShift : s)));
+    setDoc(doc(db, 'shifts', closedShift.id), closedShift).catch((err) =>
+      console.warn('Sync close shift note:', err)
+    );
 
     // Synchronize account balances in store with final balances
-    setAccounts((prev) =>
-      prev.map((acc) => {
-        if (acc.id === 'acc-cash') {
-          return { ...acc, balance: params.actualFinalCashDrawer };
+    setAccounts((prev) => {
+      const serverAccounts = prev.filter((a) => a.type === 'server_pulsa');
+      return prev.map((acc) => {
+        if (acc.id === 'acc-cash' || acc.type === 'cash') {
+          const newBal = params.actualFinalCashDrawer;
+          setDoc(doc(db, 'accounts', acc.id), { balance: newBal }, { merge: true }).catch((err) =>
+            console.warn('Sync cash drawer balance note:', err)
+          );
+          return { ...acc, balance: newBal };
         }
         for (let i = 0; i < 4; i++) {
-          if (acc.id === `acc-server-${i + 1}`) {
-            return { ...acc, balance: params.serverFinalBalances[i] || 0 };
+          const isTargetServer =
+            acc.id === `acc-server-${i + 1}` ||
+            (serverAccounts[i] && serverAccounts[i].id === acc.id);
+          if (isTargetServer) {
+            const newBal = params.serverFinalBalances[i] !== undefined ? params.serverFinalBalances[i] : acc.balance;
+            setDoc(doc(db, 'accounts', acc.id), { balance: newBal }, { merge: true }).catch((err) =>
+              console.warn('Sync server balance note:', err)
+            );
+            return { ...acc, balance: newBal };
           }
         }
         return acc;
-      })
-    );
+      });
+    });
 
     // Show shift receipt modal
     setActiveShiftReceipt(closedShift);
@@ -1083,6 +1393,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteShift = (id: string) => {
     setShifts((prev) => prev.filter((s) => s.id !== id));
+    deleteDoc(doc(db, 'shifts', id)).catch((err) =>
+      console.warn('Sync delete shift note:', err)
+    );
   };
 
   // Add transaction and sync with active shift metrics
@@ -1140,17 +1453,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return updated;
     });
 
-    // Update physical accessories inventory stock
+    // Update physical accessories inventory stock and sync new stock to Firestore
     if (newTransaction.type === 'aksesoris' && newTransaction.items) {
-      setAccessories((prev) =>
-        prev.map((acc) => {
+      setAccessories((prev) => {
+        const updated = prev.map((acc) => {
           const sold = newTransaction.items?.find((it) => it.name === acc.name);
           if (sold) {
-            return { ...acc, stock: Math.max(0, acc.stock - sold.quantity) };
+            const newStock = Math.max(0, acc.stock - sold.quantity);
+            setDoc(doc(db, 'accessories', acc.id), { stock: newStock }, { merge: true }).catch((err) =>
+              console.warn('Sync sold accessory stock note:', err)
+            );
+            return { ...acc, stock: newStock };
           }
           return acc;
-        })
-      );
+        });
+        return sortAccessories(updated);
+      });
     }
 
     // Accumulate shift profit if shift is currently open
@@ -1202,9 +1520,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         transactionId: newTransaction.id,
       };
       setKasbonList((prev) => [newKasbon, ...prev]);
+      setDoc(doc(db, 'kasbon', newKasbon.id), newKasbon).catch((err) =>
+        console.warn('Sync kasbon from transaction note:', err)
+      );
     }
 
     setTransactions((prev) => [newTransaction, ...prev]);
+    setDoc(doc(db, 'transactions', newTransaction.id), newTransaction).catch((err) =>
+      console.warn('Sync add transaction note:', err)
+    );
     setActiveReceipt(newTransaction);
 
     return newTransaction;
@@ -1212,6 +1536,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteTransaction = (id: string) => {
     setTransactions((prev) => prev.filter((t) => t.id !== id));
+    deleteDoc(doc(db, 'transactions', id)).catch((err) =>
+      console.warn('Sync delete transaction note:', err)
+    );
   };
 
   // Kasbon operations
@@ -1223,29 +1550,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       isPaid: false,
     };
     setKasbonList((prev) => [newRecord, ...prev]);
-  };
-
-  const settleKasbon = (id: string, targetAccountId?: string) => {
-    setKasbonList((prev) =>
-      prev.map((k) => {
-        if (k.id === id) {
-          return {
-            ...k,
-            isPaid: true,
-            paidDate: new Date().toISOString(),
-          };
-        }
-        return k;
-      })
+    setDoc(doc(db, 'kasbon', newRecord.id), newRecord).catch((err) =>
+      console.warn('Sync add kasbon note:', err)
     );
 
-    const targetKasbon = kasbonList.find((k) => k.id === id);
-    if (targetKasbon) {
+    // If takeFromCashDrawer is selected, deduct from cash drawer balance
+    if (record.takeFromCashDrawer && record.amount > 0) {
       setAccounts((prev) =>
         prev.map((acc) => {
-          const isTarget = targetAccountId ? acc.id === targetAccountId : acc.type === 'cash';
-          if (isTarget) {
-            return { ...acc, balance: acc.balance + targetKasbon.amount };
+          if (acc.type === 'cash') {
+            const newBal = Math.max(0, acc.balance - record.amount);
+            setDoc(doc(db, 'accounts', acc.id), { balance: newBal }, { merge: true }).catch((err) =>
+              console.warn('Sync cash drawer for kasbon note:', err)
+            );
+            return { ...acc, balance: newBal };
           }
           return acc;
         })
@@ -1253,8 +1571,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const settleKasbon = (id: string, targetAccountId?: string) => {
+    const paidAt = new Date().toISOString();
+    const targetKasbon = kasbonList.find((k) => k.id === id);
+
+    setKasbonList((prev) =>
+      prev.map((k) => {
+        if (k.id === id) {
+          setDoc(doc(db, 'kasbon', id), { isPaid: true, paidDate: paidAt }, { merge: true }).catch((err) =>
+            console.warn('Sync settle kasbon note:', err)
+          );
+          return {
+            ...k,
+            isPaid: true,
+            paidDate: paidAt,
+          };
+        }
+        return k;
+      })
+    );
+
+    if (targetKasbon && targetKasbon.amount > 0) {
+      setAccounts((prev) => {
+        // Kas masuk hanya untuk Kas Laci dan Rekening Bank & Dompet Digital
+        const cashDrawer = prev.find((a) => a.type === 'cash') || prev[0];
+        const validTarget = targetAccountId
+          ? prev.find((a) => a.id === targetAccountId && (a.type === 'cash' || a.type === 'bank' || a.type === 'ewallet'))
+          : null;
+        const effectiveTargetId = validTarget ? validTarget.id : cashDrawer?.id;
+
+        return prev.map((acc) => {
+          if (acc.id === effectiveTargetId) {
+            const newBal = acc.balance + targetKasbon.amount;
+            setDoc(doc(db, 'accounts', acc.id), { balance: newBal }, { merge: true }).catch((err) =>
+              console.warn('Sync settle kasbon account balance note:', err)
+            );
+            return { ...acc, balance: newBal };
+          }
+          return acc;
+        });
+      });
+    }
+  };
+
   const deleteKasbon = (id: string) => {
     setKasbonList((prev) => prev.filter((k) => k.id !== id));
+    deleteDoc(doc(db, 'kasbon', id)).catch((err) =>
+      console.warn('Sync delete kasbon note:', err)
+    );
   };
 
   // Export & Import
@@ -1267,6 +1631,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       transactions,
       kasbonList,
       shifts,
+      stockOpnameList,
       exportedAt: new Date().toISOString(),
       version: '2.0',
     };
@@ -1274,7 +1639,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `backup-mitracell-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `backup-nkstorecell-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -1289,6 +1654,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (data.transactions) setTransactions(data.transactions);
       if (data.kasbonList) setKasbonList(data.kasbonList);
       if (data.shifts) setShifts(data.shifts);
+      if (data.stockOpnameList) setStockOpnameList(data.stockOpnameList);
       return true;
     } catch (e) {
       console.error('Import failed', e);
@@ -1304,6 +1670,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setTransactions([]);
     setKasbonList([]);
     setShifts([]);
+    setStockOpnameList([]);
     Object.values(STORAGE_KEYS).forEach((k) => localStorage.removeItem(k));
   };
 
@@ -1324,6 +1691,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateAccessory,
         deleteAccessory,
         adjustAccessoryStock,
+        stockOpnameList,
+        applyStockOpname,
+        deleteStockOpnameRecord,
         pulsaProducts,
         updatePulsaProduct,
         addPulsaProduct,

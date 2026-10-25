@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ShiftRecord } from '../../types';
 import { formatRupiah, formatDateIndo, cleanPhoneNumber } from '../../utils/formatters';
+import { bluetoothPrinter, buildShiftRawBTUrl } from '../../utils/bluetoothPrinter';
 import {
   Printer,
   Share2,
@@ -15,19 +16,60 @@ import {
   DollarSign,
   TrendingUp,
   AlertTriangle,
+  Bluetooth,
+  Loader2,
+  AlertCircle,
+  Smartphone,
 } from 'lucide-react';
 
 export const ShiftReceiptModal: React.FC = () => {
   const { activeShiftReceipt, setActiveShiftReceipt, settings } = useApp();
   const [copied, setCopied] = useState(false);
   const [targetPhone, setTargetPhone] = useState(settings.phone || '');
+  const [isPrintingBT, setIsPrintingBT] = useState(false);
+  const [btStatus, setBtStatus] = useState<{ type: 'idle' | 'success' | 'error' | 'info'; message: string }>({
+    type: 'idle',
+    message: '',
+  });
 
   if (!activeShiftReceipt) return null;
 
   const shift = activeShiftReceipt;
 
-  const handlePrint = () => {
+  const handlePrintSystem = () => {
     window.print();
+  };
+
+  const handlePrintBluetooth = async () => {
+    setIsPrintingBT(true);
+    setBtStatus({ type: 'info', message: 'Menghubungkan ke Printer Bluetooth...' });
+    try {
+      await bluetoothPrinter.printShift(shift, settings);
+      setBtStatus({ type: 'success', message: 'Rekap shift berhasil dicetak ke Printer Bluetooth!' });
+      setTimeout(() => setBtStatus({ type: 'idle', message: '' }), 4000);
+    } catch (err: any) {
+      console.warn('Bluetooth print shift error:', err);
+      const isAbort = err?.name === 'NotFoundError' || err?.message?.includes('User cancelled');
+      if (isAbort) {
+        setBtStatus({ type: 'idle', message: '' });
+      } else {
+        setBtStatus({
+          type: 'error',
+          message: err?.message || 'Gagal cetak ke printer Bluetooth. Nyalakan printer atau coba opsi RawBT.',
+        });
+      }
+    } finally {
+      setIsPrintingBT(false);
+    }
+  };
+
+  const handlePrintRawBT = () => {
+    try {
+      const url = buildShiftRawBTUrl(shift, settings);
+      window.location.href = url;
+    } catch (e: any) {
+      alert('Gagal menyiapkan format RawBT rekap: ' + e?.message);
+    }
   };
 
   const buildShiftWhatsAppText = (s: ShiftRecord): string => {
@@ -124,29 +166,93 @@ _Laporan rekap resmi ${settings.storeName}_`;
           </button>
         </div>
 
-        {/* Action Buttons Top */}
-        <div className="p-4 bg-slate-800/40 border-b border-slate-800 flex items-center gap-2">
-          <button
-            onClick={handlePrint}
-            className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs transition shadow-lg shadow-blue-900/30"
-          >
-            <Printer className="w-4 h-4" />
-            Cetak Rekap Struk
-          </button>
-          <button
-            onClick={handleShareWhatsApp}
-            className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs transition shadow-lg shadow-emerald-900/30"
-          >
-            <Share2 className="w-4 h-4" />
-            Kirim ke WA Pemilik
-          </button>
-          <button
-            onClick={handleCopy}
-            title="Salin Teks Rekap"
-            className="p-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs transition"
-          >
-            {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-          </button>
+        {/* Action Buttons Top - Thermal Bluetooth First */}
+        <div className="p-3.5 bg-slate-800/50 border-b border-slate-800 space-y-2">
+          <div className="flex items-center gap-2">
+            {/* Direct Bluetooth Thermal Button */}
+            <button
+              onClick={handlePrintBluetooth}
+              disabled={isPrintingBT}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs transition shadow-lg shadow-blue-900/30 active:scale-95"
+            >
+              {isPrintingBT ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  <span>Menghubungkan...</span>
+                </>
+              ) : (
+                <>
+                  <Bluetooth className="w-4 h-4 text-sky-200" />
+                  <span>Cetak Bluetooth</span>
+                </>
+              )}
+            </button>
+
+            {/* Android RawBT Button */}
+            <button
+              onClick={handlePrintRawBT}
+              title="Cetak via aplikasi RawBT Android"
+              className="px-3 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs transition shadow-md active:scale-95 flex items-center gap-1.5"
+            >
+              <Smartphone className="w-4 h-4" />
+              <span>RawBT</span>
+            </button>
+
+            {/* Standard Browser/System Print */}
+            <button
+              onClick={handlePrintSystem}
+              title="Cetak via dialog printer sistem / PDF"
+              className="p-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs transition"
+            >
+              <Printer className="w-4 h-4" />
+            </button>
+
+            {/* WA Share */}
+            <button
+              onClick={handleShareWhatsApp}
+              title="Kirim Rekap ke WhatsApp Pemilik"
+              className="p-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs transition"
+            >
+              <Share2 className="w-4 h-4" />
+            </button>
+
+            {/* Copy Text */}
+            <button
+              onClick={handleCopy}
+              title="Salin Teks Rekap"
+              className="p-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs transition"
+            >
+              {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+            </button>
+          </div>
+
+          {/* Bluetooth Status Notification */}
+          {btStatus.message && (
+            <div
+              className={`flex items-start gap-2 p-2.5 rounded-xl text-xs ${
+                btStatus.type === 'error'
+                  ? 'bg-rose-950/60 border border-rose-800/80 text-rose-200'
+                  : btStatus.type === 'success'
+                  ? 'bg-emerald-950/60 border border-emerald-800/80 text-emerald-200'
+                  : 'bg-blue-950/60 border border-blue-800/80 text-blue-200'
+              }`}
+            >
+              {btStatus.type === 'error' ? (
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              ) : btStatus.type === 'success' ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              ) : (
+                <Loader2 className="w-4 h-4 text-blue-400 shrink-0 animate-spin mt-0.5" />
+              )}
+              <div className="flex-1 text-[11px] leading-snug">{btStatus.message}</div>
+              <button
+                onClick={() => setBtStatus({ type: 'idle', message: '' })}
+                className="text-slate-400 hover:text-white ml-1"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* WhatsApp Target Phone Input if needed */}

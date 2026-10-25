@@ -32,6 +32,36 @@ export interface CartAccessoryItem {
   quantity: number;
 }
 
+export interface StockOpnameItem {
+  accessoryId: string;
+  sku: string;
+  name: string;
+  category: string;
+  systemStock: number; // Stok tercatat di sistem sebelum opname
+  physicalStock: number; // Stok riil dihitung fisik
+  difference: number; // physicalStock - systemStock (0 = cocok, minus = kurang/hilang, plus = surplus)
+  priceCost: number; // Harga modal satuan
+  priceSell: number; // Harga jual satuan
+  costDifference: number; // difference * priceCost (nilai rupiah selisih)
+  reason?: string; // Alasan selisih (misal: "Rusak", "Hilang", "Salah Input", "Bonus Kulakan", "Lainnya")
+}
+
+export interface StockOpnameRecord {
+  id: string;
+  opnameNumber: string; // misal: "SO-20261023-001"
+  date: string; // ISO date string
+  auditorName: string; // Nama kasir/staf atau owner pemeriksa
+  notes?: string; // Catatan sesi stock opname
+  totalItemsCounted: number; // Jumlah varian barang yang diaudit
+  totalSystemUnits: number; // Total unit stok sistem
+  totalPhysicalUnits: number; // Total unit stok fisik
+  totalDifferenceUnits: number; // Total selisih unit fisik vs sistem
+  totalCostDifference: number; // Total nilai rupiah selisih harga modal
+  items: StockOpnameItem[];
+  status: 'applied';
+  appliedAt: string;
+}
+
 export interface Transaction {
   id: string;
   invoiceNo: string;
@@ -78,6 +108,7 @@ export interface KasbonRecord {
   isPaid: boolean;
   paidDate?: string;
   transactionId?: string;
+  takeFromCashDrawer?: boolean; // Ambil dari Cashdrawer
 }
 
 export interface CashMutation {
@@ -151,6 +182,7 @@ export interface StaffPermissions {
   canDeleteShifts: boolean; // Hapus Riwayat Shift
   canEditSettings: boolean; // Pengaturan Toko & Printer
   canViewCostPrice: boolean; // Melihat Estimasi Laba & Harga Modal di Kasir POS
+  canAccessStockOpname: boolean; // Fitur Stock Opname & Koreksi Fisik Stok
 }
 
 export interface StaffAccount {

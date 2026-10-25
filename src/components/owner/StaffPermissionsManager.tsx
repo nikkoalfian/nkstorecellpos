@@ -17,6 +17,7 @@ import {
   Eye,
   EyeOff,
   CheckCircle2,
+  ClipboardCheck,
   Lock,
   Unlock,
   Sparkles,
@@ -254,6 +255,7 @@ export const StaffPermissionsManager: React.FC = () => {
         canDeleteShifts: true,
         canEditSettings: true,
         canViewCostPrice: true,
+        canAccessStockOpname: true,
       });
       showToast('Semua hak akses telah diizinkan untuk staf');
     }
@@ -367,6 +369,14 @@ export const StaffPermissionsManager: React.FC = () => {
       icon: Settings,
       category: 'otoritas',
       riskLevel: 'kritis',
+    },
+    {
+      key: 'canAccessStockOpname',
+      title: 'Akses Audit Fisik Stock Opname',
+      description: 'Izinkan staf melakukan sesi stock opname dan menyesuaikan stok fisik riil aksesoris.',
+      icon: ClipboardCheck,
+      category: 'otoritas',
+      riskLevel: 'sedang',
     },
   ];
 

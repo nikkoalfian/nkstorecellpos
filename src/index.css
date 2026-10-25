@@ -30,26 +30,30 @@
   body * {
     visibility: hidden;
   }
-  #printable-receipt, #printable-receipt * {
+  #printable-receipt, #printable-receipt *,
+  #printable-shift-receipt, #printable-shift-receipt * {
     visibility: visible;
   }
-  #printable-receipt {
+  #printable-receipt,
+  #printable-shift-receipt {
     position: absolute;
     left: 0;
     top: 0;
     width: 100% !important;
     max-width: 58mm !important;
     margin: 0 !important;
-    padding: 2mm !important;
+    padding: 1.5mm !important;
     background: white !important;
     color: black !important;
     font-size: 11px !important;
+    font-family: 'Courier New', Courier, monospace !important;
+    line-height: 1.25 !important;
     box-shadow: none !important;
     border: none !important;
   }
   @page {
     margin: 0;
-    size: auto;
+    size: 58mm auto;
   }
 }
 

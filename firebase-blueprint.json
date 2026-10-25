@@ -114,6 +114,23 @@
         "netProfit": { "type": "number" }
       },
       "required": ["shiftNumber", "cashierName", "startTime", "status"]
+    },
+    "StockOpnameRecord": {
+      "title": "StockOpnameRecord",
+      "description": "Stock opname physical inventory count session for accessories",
+      "type": "object",
+      "properties": {
+        "opnameNumber": { "type": "string" },
+        "date": { "type": "string" },
+        "auditorName": { "type": "string" },
+        "notes": { "type": "string" },
+        "totalItemsCounted": { "type": "number" },
+        "totalDifferenceUnits": { "type": "number" },
+        "totalCostDifference": { "type": "number" },
+        "status": { "type": "string" },
+        "appliedAt": { "type": "string" }
+      },
+      "required": ["opnameNumber", "date", "auditorName", "status"]
     }
   },
   "firestore": {
@@ -144,6 +161,10 @@
     "/shifts/{shiftId}": {
       "schema": "ShiftRecord",
       "description": "Cashier shifts"
+    },
+    "/stockOpname/{opnameId}": {
+      "schema": "StockOpnameRecord",
+      "description": "Stock opname inventory audit sessions"
     }
   }
 }

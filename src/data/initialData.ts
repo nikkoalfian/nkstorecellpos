@@ -45,6 +45,7 @@ export const DEFAULT_STAFF_PERMISSIONS: StaffPermissions = {
   canDeleteShifts: false,
   canEditSettings: false,
   canViewCostPrice: false,
+  canAccessStockOpname: false,
 };
 
 export const INITIAL_SETTINGS: StoreSettings = {

@@ -2,52 +2,45 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
     function isValidId(id) {
       return id is string && id.size() > 0 && id.size() <= 128;
     }
 
     match /stores/{storeId} {
-      allow read: if true;
-      allow write: if isSignedIn() && isValidId(storeId);
+      allow read, write: if isValidId(storeId);
     }
 
     match /accounts/{accountId} {
-      allow read: if true;
-      allow write: if isSignedIn() && isValidId(accountId);
+      allow read, write: if isValidId(accountId);
     }
 
     match /accessories/{accessoryId} {
-      allow read: if true;
-      allow write: if isSignedIn() && isValidId(accessoryId);
+      allow read, write: if isValidId(accessoryId);
     }
 
     match /pulsaProducts/{productId} {
-      allow read: if true;
-      allow write: if isSignedIn() && isValidId(productId);
+      allow read, write: if isValidId(productId);
     }
 
     match /transactions/{transactionId} {
-      allow read: if true;
-      allow write: if isSignedIn() && isValidId(transactionId);
+      allow read, write: if isValidId(transactionId);
     }
 
     match /kasbon/{kasbonId} {
-      allow read: if true;
-      allow write: if isSignedIn() && isValidId(kasbonId);
+      allow read, write: if isValidId(kasbonId);
     }
 
     match /shifts/{shiftId} {
-      allow read: if true;
-      allow write: if isSignedIn() && isValidId(shiftId);
+      allow read, write: if isValidId(shiftId);
+    }
+
+    match /stockOpname/{opnameId} {
+      allow read, write: if isValidId(opnameId);
     }
 
     // Default deny for unmapped documents
     match /{document=**} {
-      allow read, write: if isSignedIn();
+      allow read, write: if false;
     }
   }
 }

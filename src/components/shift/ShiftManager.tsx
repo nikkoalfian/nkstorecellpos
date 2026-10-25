@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ShiftRecord, ServerShiftItem } from '../../types';
 import { formatRupiah, formatDateIndo } from '../../utils/formatters';
@@ -27,6 +27,11 @@ import {
   Check,
   X,
   Calculator,
+  RefreshCw,
+  ArrowLeftRight,
+  ArrowUpDown,
+  Wallet,
+  QrCode,
 } from 'lucide-react';
 
 export const ShiftManager: React.FC = () => {
@@ -44,16 +49,60 @@ export const ShiftManager: React.FC = () => {
     hasPermission,
     requestOwnerPin,
     isOwnerUnlocked,
+    accounts,
+    transferBetweenAccounts,
   } = useApp();
 
-  // Buka Shift Form State
+  // Helper to fetch live account balance from Buku Kas & Bank
+  const getServerAccountBalance = (serverIdx: number): number => {
+    const specific = accounts.find((a) => a.id === `acc-server-${serverIdx + 1}`);
+    if (specific) return specific.balance;
+    const serverAccs = accounts.filter((a) => a.type === 'server_pulsa');
+    return serverAccs[serverIdx]?.balance ?? 0;
+  };
+
+  const getCashDrawerBalance = (): number => {
+    const cashAcc = accounts.find((a) => a.type === 'cash' || a.id === 'acc-cash');
+    return cashAcc?.balance ?? 0;
+  };
+
+  // Buka Shift Form State (Auto-synced with Buku Kas & Bank)
   const [showBukaShiftModal, setShowBukaShiftModal] = useState(false);
   const [bukaCashierName, setBukaCashierName] = useState(settings.ownerName || 'Nikko (Kasir Shift)');
-  const [bukaCashDrawer, setBukaCashDrawer] = useState<number | ''>(1000000);
-  const [bukaServer1, setBukaServer1] = useState<number | ''>(282854);
-  const [bukaServer2, setBukaServer2] = useState<number | ''>(1000000);
-  const [bukaServer3, setBukaServer3] = useState<number | ''>(800000);
-  const [bukaServer4, setBukaServer4] = useState<number | ''>(1800000);
+  const [bukaCashDrawer, setBukaCashDrawer] = useState<number | ''>(() => getCashDrawerBalance());
+  const [bukaServer1, setBukaServer1] = useState<number | ''>(() => getServerAccountBalance(0));
+  const [bukaServer2, setBukaServer2] = useState<number | ''>(() => getServerAccountBalance(1));
+  const [bukaServer3, setBukaServer3] = useState<number | ''>(() => getServerAccountBalance(2));
+  const [bukaServer4, setBukaServer4] = useState<number | ''>(() => getServerAccountBalance(3));
+  const [hasManuallyEditedBuka, setHasManuallyEditedBuka] = useState(false);
+
+  // Sync state from Buku Kas & Bank into Buka Shift form
+  const syncBukaShiftFromBukuKas = () => {
+    setBukaServer1(getServerAccountBalance(0));
+    setBukaServer2(getServerAccountBalance(1));
+    setBukaServer3(getServerAccountBalance(2));
+    setBukaServer4(getServerAccountBalance(3));
+    setBukaCashDrawer(getCashDrawerBalance());
+    setHasManuallyEditedBuka(false);
+    setSimToast('✅ Saldo Awal berhasil disinkronkan dengan data Saldo 4 Server Pulsa & Kuota PPOB dari Buku Kas!');
+    setTimeout(() => setSimToast(null), 3000);
+  };
+
+  // Auto-sync from Buku Kas & Bank when accounts change and no active shift is running
+  useEffect(() => {
+    if (!activeShift && !hasManuallyEditedBuka && accounts.length > 0) {
+      setBukaServer1(getServerAccountBalance(0));
+      setBukaServer2(getServerAccountBalance(1));
+      setBukaServer3(getServerAccountBalance(2));
+      setBukaServer4(getServerAccountBalance(3));
+      setBukaCashDrawer(getCashDrawerBalance());
+    }
+  }, [accounts, activeShift, hasManuallyEditedBuka]);
+
+  const handleOpenBukaShiftModal = () => {
+    syncBukaShiftFromBukuKas();
+    setShowBukaShiftModal(true);
+  };
 
   // Simulation Feedback Toast
   const [simToast, setSimToast] = useState<string | null>(null);
@@ -66,6 +115,71 @@ export const ShiftManager: React.FC = () => {
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [expenseAmount, setExpenseAmount] = useState<number | ''>('');
   const [expenseNote, setExpenseNote] = useState('');
+  const [shiftToDelete, setShiftToDelete] = useState<ShiftRecord | null>(null);
+
+  // Pindah / Mutasi Saldo Modal State (Seperti di Buku Kas & Bank)
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [transferFromId, setTransferFromId] = useState('');
+  const [transferToId, setTransferToId] = useState('');
+  const [transferAmount, setTransferAmount] = useState<number | ''>('');
+  const [transferNotes, setTransferNotes] = useState('Pindah saldo kasir / top up server');
+  const [autoSyncShiftServer, setAutoSyncShiftServer] = useState(true);
+
+  const handleOpenTransferModal = (preferredToId?: string, preferredFromId?: string) => {
+    const cashAcc = accounts.find((a) => a.type === 'cash' || a.id === 'acc-cash');
+    const defaultFrom = preferredFromId || cashAcc?.id || accounts[0]?.id || '';
+
+    // Default target: server 1 if not specified
+    const srv1 = accounts.find((a) => a.id === 'acc-server-1') || accounts.find((a) => a.type === 'server_pulsa');
+    const defaultTo = preferredToId || srv1?.id || accounts.find((a) => a.id !== defaultFrom)?.id || '';
+
+    setTransferFromId(defaultFrom);
+    setTransferToId(defaultTo);
+    setTransferAmount('');
+    setTransferNotes('Pindah saldo operasional / pengisian server');
+    setAutoSyncShiftServer(true);
+    setShowTransferModal(true);
+  };
+
+  const handleSwapTransferAccounts = () => {
+    const prevFrom = transferFromId;
+    setTransferFromId(transferToId);
+    setTransferToId(prevFrom);
+  };
+
+  const handleExecuteTransfer = (e: React.FormEvent) => {
+    e.preventDefault();
+    const amt = Number(transferAmount);
+    if (!amt || amt <= 0 || transferFromId === transferToId) return;
+
+    const fromAcc = accounts.find((a) => a.id === transferFromId);
+    const toAcc = accounts.find((a) => a.id === transferToId);
+
+    transferBetweenAccounts(transferFromId, transferToId, amt, transferNotes);
+
+    // If an active shift is running and destination account is one of the 4 servers:
+    if (activeShift && autoSyncShiftServer && toAcc && toAcc.type === 'server_pulsa') {
+      let targetServerId = '';
+      if (toAcc.id === 'acc-server-1') targetServerId = 'server-1';
+      else if (toAcc.id === 'acc-server-2') targetServerId = 'server-2';
+      else if (toAcc.id === 'acc-server-3') targetServerId = 'server-3';
+      else if (toAcc.id === 'acc-server-4') targetServerId = 'server-4';
+      else {
+        const srvIdx = accounts.filter((a) => a.type === 'server_pulsa').findIndex((a) => a.id === toAcc.id);
+        if (srvIdx >= 0 && srvIdx < 4) {
+          targetServerId = `server-${srvIdx + 1}`;
+        }
+      }
+
+      if (targetServerId) {
+        addShiftTopUp(targetServerId, amt);
+      }
+    }
+
+    setShowTransferModal(false);
+    setSimToast(`✅ Berhasil memindahkan saldo ${formatRupiah(amt)} dari ${fromAcc?.name || 'Asal'} ke ${toAcc?.name || 'Tujuan'}!`);
+    setTimeout(() => setSimToast(null), 4000);
+  };
 
   // KALKULATOR REKAP SERVER
   const [simServerIdx, setSimServerIdx] = useState(0); // 0: Digipos, 1: SiDompul, 2: Mobo, 3: Multi
@@ -105,7 +219,12 @@ export const ShiftManager: React.FC = () => {
   const [closeNotes, setCloseNotes] = useState('');
 
   // Preset Saldo Awal Helper
-  const handleApplyPreset = (type: 'digipos' | 'standar' | 'besar' | 'kosong') => {
+  const handleApplyPreset = (type: 'buku_kas' | 'digipos' | 'standar' | 'besar' | 'kosong') => {
+    if (type === 'buku_kas') {
+      syncBukaShiftFromBukuKas();
+      return;
+    }
+    setHasManuallyEditedBuka(true);
     if (type === 'digipos') {
       setBukaCashDrawer(500000);
       setBukaServer1(282854);
@@ -147,8 +266,6 @@ export const ShiftManager: React.FC = () => {
   const simProfit = (simNumSales + simNumAkhir) - simNumTotal;
   const simUsage = Math.max(0, simNumTotal - simNumAkhir);
 
-
-
   // Pre-fill Close Shift when modal opens
   const handleOpenCloseModal = () => {
     if (!activeShift) return;
@@ -161,22 +278,28 @@ export const ShiftManager: React.FC = () => {
 
     setModalTotalSaldos([s1Total, s2Total, s3Total, s4Total]);
 
-    // Berikan nilai default yang realistis agar langsung terlihat hitungan matematisnya
+    // Ambil saldo terkini dari Buku Kas & Bank sebagai nilai acuan awal
+    const curS1 = getServerAccountBalance(0);
+    const curS2 = getServerAccountBalance(1);
+    const curS3 = getServerAccountBalance(2);
+    const curS4 = getServerAccountBalance(3);
+
     setFinalBalances([
-      132748,
-      s2Total > 240000 ? s2Total - 240000 : 760000,
-      s3Total > 180000 ? s3Total - 180000 : 720000,
-      s4Total > 350000 ? s4Total - 350000 : 1450000,
+      curS1 > 0 ? curS1 : (s1Total > 150000 ? s1Total - 150000 : 132748),
+      curS2 > 0 ? curS2 : (s2Total > 240000 ? s2Total - 240000 : 760000),
+      curS3 > 0 ? curS3 : (s3Total > 180000 ? s3Total - 180000 : 720000),
+      curS4 > 0 ? curS4 : (s4Total > 350000 ? s4Total - 350000 : 1450000),
     ]);
 
     setServerGrossSales([
-      186000,
-      270000,
-      200000,
-      395000,
+      activeShift.servers[0]?.grossSales || 186000,
+      activeShift.servers[1]?.grossSales || 270000,
+      activeShift.servers[2]?.grossSales || 200000,
+      activeShift.servers[3]?.grossSales || 395000,
     ]);
 
-    setActualCashDrawer(activeShift.initialCashDrawer + 186000 + 270000 + 200000 + 395000);
+    const currentCash = getCashDrawerBalance();
+    setActualCashDrawer(currentCash > 0 ? currentCash : activeShift.initialCashDrawer);
     setCloseNotes('');
     setShowCloseShiftModal(true);
   };
@@ -327,6 +450,8 @@ export const ShiftManager: React.FC = () => {
     });
 
     setShowCloseShiftModal(false);
+    setSimToast('✅ Shift berhasil ditutup! Saldo 4 Server Pulsa & Kuota PPOB pada Buku Kas & Bank telah tersinkronisasi otomatis.');
+    setTimeout(() => setSimToast(null), 4000);
   };
 
   const serverColors = [
@@ -373,12 +498,21 @@ export const ShiftManager: React.FC = () => {
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => setShowBukaShiftModal(true)}
+                onClick={handleOpenBukaShiftModal}
                 className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-800/50 text-xs font-semibold flex items-center gap-1.5 transition"
                 title="Buka shift baru dan input saldo awal"
               >
                 <Sliders className="w-4 h-4 text-amber-400" />
                 Buka Shift Baru
+              </button>
+              <button
+                type="button"
+                onClick={() => handleOpenTransferModal()}
+                className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-teal-700 to-emerald-700 hover:from-teal-600 hover:to-emerald-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-950/40 transition active:scale-95 cursor-pointer"
+                title="Pindah / mutasi saldo antar Kas Laci, Saldo 4 Server, Rekening Bank, atau E-Wallet"
+              >
+                <ArrowLeftRight className="w-4 h-4 text-emerald-200" />
+                Pindah / Mutasi Saldo
               </button>
               <button
                 type="button"
@@ -444,10 +578,23 @@ export const ShiftManager: React.FC = () => {
                     )}
                   </div>
 
-                  <div className="pt-2 border-t border-slate-800/80 flex justify-between text-xs text-slate-300">
+                  <div className="pt-2 border-t border-slate-800/80 flex justify-between items-center text-xs text-slate-300">
                     <span>Status:</span>
                     <span className="text-emerald-400 font-semibold">Siap Transaksi</span>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetAccId = accounts.find((a) => a.id === `acc-server-${idx + 1}`)?.id || accounts.filter((a) => a.type === 'server_pulsa')[idx]?.id;
+                      handleOpenTransferModal(targetAccId);
+                    }}
+                    className="w-full py-1.5 px-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-emerald-300 hover:text-emerald-200 border border-slate-700/80 text-[11px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                    title={`Pindah saldo kas laci atau bank ke ${srv.serverName}`}
+                  >
+                    <ArrowLeftRight className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Pindah Saldo ke Srv {idx + 1}</span>
+                  </button>
                 </div>
               ))}
             </div>
@@ -713,17 +860,35 @@ export const ShiftManager: React.FC = () => {
               <span className="text-slate-400 text-[11px] mr-1">Preset Cepat:</span>
               <button
                 type="button"
-                onClick={() => handleApplyPreset('digipos')}
-                className="px-2.5 py-1 rounded-lg bg-emerald-950 text-emerald-300 border border-emerald-700 font-semibold hover:bg-emerald-900"
+                onClick={() => handleApplyPreset('buku_kas')}
+                className="px-2.5 py-1 rounded-lg bg-emerald-950 text-emerald-300 border border-emerald-600 font-bold hover:bg-emerald-900 flex items-center gap-1 shadow-sm"
+                title="Ambil data saldo awal terkini dari Saldo 4 Server Pulsa & Kuota PPOB di Buku Kas & Bank"
               >
-                Paket Standar 1 (Rp 282.854)
+                <RotateCcw className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Ambil Saldo Buku Kas</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleOpenTransferModal()}
+                className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-teal-800 to-emerald-800 hover:from-teal-700 hover:to-emerald-700 text-emerald-100 border border-emerald-600 font-bold flex items-center gap-1 shadow-sm cursor-pointer"
+                title="Pindah / mutasi saldo antar Kas Laci, Saldo 4 Server, Rekening Bank, atau E-Wallet"
+              >
+                <ArrowLeftRight className="w-3.5 h-3.5 text-emerald-300" />
+                <span>Pindah / Mutasi Saldo</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApplyPreset('digipos')}
+                className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+              >
+                Standar 1 (Rp 282.854)
               </button>
               <button
                 type="button"
                 onClick={() => handleApplyPreset('standar')}
                 className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
               >
-                Paket Standar 2 (Rp 1 Juta)
+                Standar 2 (Rp 1 Juta)
               </button>
               <button
                 type="button"
@@ -737,9 +902,27 @@ export const ShiftManager: React.FC = () => {
                 onClick={() => handleApplyPreset('kosong')}
                 className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 border border-slate-700"
               >
-                Input Manual
+                Kosongkan
               </button>
             </div>
+          </div>
+
+          {/* Sync Information Banner */}
+          <div className="p-3 bg-blue-950/40 rounded-2xl border border-blue-800/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2 text-blue-300">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>
+                Saldo awal otomatis tersinkron dengan <strong>Saldo 4 Server Pulsa & Kuota PPOB</strong> di Buku Kas & Bank. Anda tetap dapat mengetik/mengubah nilai secara manual.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={syncBukaShiftFromBukuKas}
+              className="px-2.5 py-1 rounded-lg bg-blue-600/30 hover:bg-blue-600 border border-blue-500/50 text-blue-200 hover:text-white font-semibold text-[11px] flex items-center gap-1 shrink-0 self-start sm:self-auto transition"
+            >
+              <RotateCcw className="w-3 h-3 text-cyan-300" />
+              <span>Sinkron Ulang Buku Kas</span>
+            </button>
           </div>
 
           <form onSubmit={handleBukaShiftSubmit} className="space-y-6">
@@ -762,15 +945,23 @@ export const ShiftManager: React.FC = () => {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                  Modal Awal Kas di Laci Kasir (Uang Kembalian):
-                </label>
+                <div className="flex justify-between items-center mb-1.5">
+                  <label className="text-xs font-semibold text-slate-300">
+                    Modal Awal Kas di Laci Kasir (Uang Kembalian):
+                  </label>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    Buku Kas: {formatRupiah(getCashDrawerBalance())}
+                  </span>
+                </div>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">Rp</span>
                   <input
                     type="number"
                     value={bukaCashDrawer}
-                    onChange={(e) => setBukaCashDrawer(e.target.value === '' ? '' : Number(e.target.value))}
+                    onChange={(e) => {
+                      setHasManuallyEditedBuka(true);
+                      setBukaCashDrawer(e.target.value === '' ? '' : Number(e.target.value));
+                    }}
                     placeholder="0"
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2.5 text-sm font-bold font-mono text-emerald-400 focus:outline-none focus:border-blue-500"
                     required
@@ -781,22 +972,35 @@ export const ShiftManager: React.FC = () => {
 
             {/* Input Saldo Awal 4 Server */}
             <div className="space-y-3 pt-2">
-              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                <Server className="w-4 h-4 text-blue-400" />
-                Input Saldo Awal 4 Server Pulsa:
-              </h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <Server className="w-4 h-4 text-blue-400" />
+                  Input Saldo Awal 4 Server Pulsa (Tersinkron Buku Kas & Bank):
+                </h3>
+                <span className="text-[11px] text-emerald-400 font-medium">
+                  Bisa diedit manual
+                </span>
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {/* Server 1 */}
                 <div className="p-4 bg-slate-950 rounded-2xl border border-red-900/40 space-y-2">
-                  <span className="text-xs font-bold text-red-400 truncate block">
-                    {settings.serverNames?.[0] || 'Server 1 (Digipos Telkomsel)'}
-                  </span>
-                  <label className="text-[10px] text-slate-400 block">Saldo Awal (Rp):</label>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-red-400 truncate block">
+                      {settings.serverNames?.[0] || 'Server 1 (Digipos Telkomsel)'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-[10px] text-slate-400">
+                    <span>Saldo Awal (Rp):</span>
+                    <span className="text-red-300/80 font-mono">Kas: {formatRupiah(getServerAccountBalance(0))}</span>
+                  </div>
                   <input
                     type="number"
                     value={bukaServer1}
-                    onChange={(e) => setBukaServer1(e.target.value === '' ? '' : Number(e.target.value))}
+                    onChange={(e) => {
+                      setHasManuallyEditedBuka(true);
+                      setBukaServer1(e.target.value === '' ? '' : Number(e.target.value));
+                    }}
                     className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm font-mono font-bold text-white focus:outline-none focus:border-red-500"
                     required
                   />
@@ -804,14 +1008,22 @@ export const ShiftManager: React.FC = () => {
 
                 {/* Server 2 */}
                 <div className="p-4 bg-slate-950 rounded-2xl border border-blue-900/40 space-y-2">
-                  <span className="text-xs font-bold text-blue-400 truncate block">
-                    {settings.serverNames?.[1] || 'Server 2 (SiDompul XL-Axis)'}
-                  </span>
-                  <label className="text-[10px] text-slate-400 block">Saldo Awal (Rp):</label>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-blue-400 truncate block">
+                      {settings.serverNames?.[1] || 'Server 2 (SiDompul XL-Axis)'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-[10px] text-slate-400">
+                    <span>Saldo Awal (Rp):</span>
+                    <span className="text-blue-300/80 font-mono">Kas: {formatRupiah(getServerAccountBalance(1))}</span>
+                  </div>
                   <input
                     type="number"
                     value={bukaServer2}
-                    onChange={(e) => setBukaServer2(e.target.value === '' ? '' : Number(e.target.value))}
+                    onChange={(e) => {
+                      setHasManuallyEditedBuka(true);
+                      setBukaServer2(e.target.value === '' ? '' : Number(e.target.value));
+                    }}
                     className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm font-mono font-bold text-white focus:outline-none focus:border-blue-500"
                     required
                   />
@@ -819,14 +1031,22 @@ export const ShiftManager: React.FC = () => {
 
                 {/* Server 3 */}
                 <div className="p-4 bg-slate-950 rounded-2xl border border-yellow-900/40 space-y-2">
-                  <span className="text-xs font-bold text-yellow-400 truncate block">
-                    {settings.serverNames?.[2] || 'Server 3 (Mobo Indosat)'}
-                  </span>
-                  <label className="text-[10px] text-slate-400 block">Saldo Awal (Rp):</label>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-yellow-400 truncate block">
+                      {settings.serverNames?.[2] || 'Server 3 (Mobo Indosat)'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-[10px] text-slate-400">
+                    <span>Saldo Awal (Rp):</span>
+                    <span className="text-yellow-300/80 font-mono">Kas: {formatRupiah(getServerAccountBalance(2))}</span>
+                  </div>
                   <input
                     type="number"
                     value={bukaServer3}
-                    onChange={(e) => setBukaServer3(e.target.value === '' ? '' : Number(e.target.value))}
+                    onChange={(e) => {
+                      setHasManuallyEditedBuka(true);
+                      setBukaServer3(e.target.value === '' ? '' : Number(e.target.value));
+                    }}
                     className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm font-mono font-bold text-white focus:outline-none focus:border-yellow-500"
                     required
                   />
@@ -834,14 +1054,22 @@ export const ShiftManager: React.FC = () => {
 
                 {/* Server 4 */}
                 <div className="p-4 bg-slate-950 rounded-2xl border border-cyan-900/40 space-y-2">
-                  <span className="text-xs font-bold text-cyan-400 truncate block">
-                    {settings.serverNames?.[3] || 'Server 4 (Multi PPOB)'}
-                  </span>
-                  <label className="text-[10px] text-slate-400 block">Saldo Awal (Rp):</label>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-cyan-400 truncate block">
+                      {settings.serverNames?.[3] || 'Server 4 (Multi PPOB)'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-[10px] text-slate-400">
+                    <span>Saldo Awal (Rp):</span>
+                    <span className="text-cyan-300/80 font-mono">Kas: {formatRupiah(getServerAccountBalance(3))}</span>
+                  </div>
                   <input
                     type="number"
                     value={bukaServer4}
-                    onChange={(e) => setBukaServer4(e.target.value === '' ? '' : Number(e.target.value))}
+                    onChange={(e) => {
+                      setHasManuallyEditedBuka(true);
+                      setBukaServer4(e.target.value === '' ? '' : Number(e.target.value));
+                    }}
                     className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-sm font-mono font-bold text-white focus:outline-none focus:border-cyan-500"
                     required
                   />
@@ -961,23 +1189,18 @@ export const ShiftManager: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => {
+                              const proceed = () => setShiftToDelete(s);
                               if (!isOwnerUnlocked && !hasPermission('canDeleteShifts')) {
                                 requestOwnerPin(
                                   'Hapus Catatan Shift',
-                                  () => {
-                                    if (confirm(`Hapus data shift #${s.shiftNumber}?`)) {
-                                      deleteShift(s.id);
-                                    }
-                                  },
+                                  proceed,
                                   'Menghapus riwayat shift dibatasi untuk kasir. Masukkan PIN Pemilik untuk konfirmasi.'
                                 );
-                                return;
-                              }
-                              if (confirm(`Hapus data shift #${s.shiftNumber}?`)) {
-                                deleteShift(s.id);
+                              } else {
+                                proceed();
                               }
                             }}
-                            className="p-1.5 rounded-lg bg-slate-800 hover:bg-red-900/50 text-slate-400 hover:text-red-300 transition"
+                            className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-900/60 text-slate-400 hover:text-rose-300 transition"
                             title="Hapus Rekap Shift"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1014,23 +1237,48 @@ export const ShiftManager: React.FC = () => {
             </div>
 
             <form onSubmit={handleBukaShiftSubmit} className="p-6 space-y-5 text-xs max-h-[75vh] overflow-y-auto">
+              {/* Buku Kas Live Auto-Sync Banner */}
+              <div className="p-3 bg-blue-950/30 border border-blue-900/50 rounded-2xl flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2 text-slate-300">
+                  <RefreshCw className="w-4 h-4 text-blue-400 shrink-0" />
+                  <span>
+                    Form terisi otomatis dari <strong>Saldo 4 Server Pulsa & Kuota PPOB di Buku Kas</strong>. Anda tetap dapat mengedit nominal secara manual.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={syncBukaShiftFromBukuKas}
+                  className="px-2.5 py-1 rounded-lg bg-blue-900 hover:bg-blue-800 text-blue-200 text-xs font-semibold shrink-0 transition"
+                >
+                  Segarkan dari Buku Kas
+                </button>
+              </div>
+
               {/* Presets */}
               <div className="p-3 bg-slate-950 rounded-2xl border border-slate-800 flex items-center justify-between flex-wrap gap-2">
                 <span className="text-slate-400 font-medium">Pilihan Saldo Awal:</span>
                 <div className="flex gap-2 flex-wrap">
                   <button
                     type="button"
+                    onClick={() => handleApplyPreset('buku_kas')}
+                    className="px-2.5 py-1.5 rounded-lg bg-blue-950 text-blue-300 border border-blue-700 font-semibold hover:bg-blue-900 flex items-center gap-1.5"
+                  >
+                    <RefreshCw className="w-3 h-3 text-blue-400" />
+                    Ambil Saldo Buku Kas (Otomatis)
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => handleApplyPreset('digipos')}
                     className="px-2.5 py-1.5 rounded-lg bg-emerald-950 text-emerald-300 border border-emerald-700 font-semibold hover:bg-emerald-900"
                   >
-                    Paket Standar 1 (Rp 282.854)
+                    Paket Standar 1
                   </button>
                   <button
                     type="button"
                     onClick={() => handleApplyPreset('standar')}
                     className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold"
                   >
-                    Paket Standar 2 (Rp 1 Juta)
+                    Paket Standar 2
                   </button>
                   <button
                     type="button"
@@ -1061,13 +1309,19 @@ export const ShiftManager: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="text-slate-300 font-semibold block mb-1">
-                    Modal Awal Kas Laci (Rp):
-                  </label>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-slate-300 font-semibold block">
+                      Modal Awal Kas Laci (Rp):
+                    </label>
+                    <span className="text-[10px] text-slate-400">Kas: {formatRupiah(getCashDrawerBalance())}</span>
+                  </div>
                   <input
                     type="number"
                     value={bukaCashDrawer}
-                    onChange={(e) => setBukaCashDrawer(e.target.value === '' ? '' : Number(e.target.value))}
+                    onChange={(e) => {
+                      setHasManuallyEditedBuka(true);
+                      setBukaCashDrawer(e.target.value === '' ? '' : Number(e.target.value));
+                    }}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 font-mono font-bold text-emerald-400 focus:outline-none focus:border-blue-500"
                     required
                   />
@@ -1076,16 +1330,28 @@ export const ShiftManager: React.FC = () => {
 
               {/* Saldo 4 Server Inputs */}
               <div className="space-y-2">
-                <span className="text-slate-300 font-bold uppercase block">
-                  Saldo Awal 4 Server Pulsa:
-                </span>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-300 font-bold uppercase block">
+                    Saldo Awal 4 Server Pulsa (Bisa Diedit Manual):
+                  </span>
+                  <span className="text-[10px] text-blue-400 flex items-center gap-1">
+                    <RefreshCw className="w-3 h-3" />
+                    Sinkron Buku Kas
+                  </span>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="p-3 bg-slate-950 rounded-xl border border-red-900/40 space-y-1">
-                    <span className="text-red-400 font-bold block">{settings.serverNames?.[0]}</span>
+                    <div className="flex justify-between items-center">
+                      <span className="text-red-400 font-bold block">{settings.serverNames?.[0]}</span>
+                      <span className="text-[10px] text-slate-400">Kas: {formatRupiah(getServerAccountBalance(0))}</span>
+                    </div>
                     <input
                       type="number"
                       value={bukaServer1}
-                      onChange={(e) => setBukaServer1(e.target.value === '' ? '' : Number(e.target.value))}
+                      onChange={(e) => {
+                        setHasManuallyEditedBuka(true);
+                        setBukaServer1(e.target.value === '' ? '' : Number(e.target.value));
+                      }}
                       placeholder="Saldo Awal Server 1"
                       className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white font-mono font-bold focus:outline-none focus:border-red-500"
                       required
@@ -1093,11 +1359,17 @@ export const ShiftManager: React.FC = () => {
                   </div>
 
                   <div className="p-3 bg-slate-950 rounded-xl border border-blue-900/40 space-y-1">
-                    <span className="text-blue-400 font-bold block">{settings.serverNames?.[1]}</span>
+                    <div className="flex justify-between items-center">
+                      <span className="text-blue-400 font-bold block">{settings.serverNames?.[1]}</span>
+                      <span className="text-[10px] text-slate-400">Kas: {formatRupiah(getServerAccountBalance(1))}</span>
+                    </div>
                     <input
                       type="number"
                       value={bukaServer2}
-                      onChange={(e) => setBukaServer2(e.target.value === '' ? '' : Number(e.target.value))}
+                      onChange={(e) => {
+                        setHasManuallyEditedBuka(true);
+                        setBukaServer2(e.target.value === '' ? '' : Number(e.target.value));
+                      }}
                       placeholder="Saldo Awal Server 2"
                       className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white font-mono font-bold focus:outline-none focus:border-blue-500"
                       required
@@ -1105,11 +1377,17 @@ export const ShiftManager: React.FC = () => {
                   </div>
 
                   <div className="p-3 bg-slate-950 rounded-xl border border-yellow-900/40 space-y-1">
-                    <span className="text-yellow-400 font-bold block">{settings.serverNames?.[2]}</span>
+                    <div className="flex justify-between items-center">
+                      <span className="text-yellow-400 font-bold block">{settings.serverNames?.[2]}</span>
+                      <span className="text-[10px] text-slate-400">Kas: {formatRupiah(getServerAccountBalance(2))}</span>
+                    </div>
                     <input
                       type="number"
                       value={bukaServer3}
-                      onChange={(e) => setBukaServer3(e.target.value === '' ? '' : Number(e.target.value))}
+                      onChange={(e) => {
+                        setHasManuallyEditedBuka(true);
+                        setBukaServer3(e.target.value === '' ? '' : Number(e.target.value));
+                      }}
                       placeholder="Saldo Awal Server 3"
                       className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white font-mono font-bold focus:outline-none focus:border-yellow-500"
                       required
@@ -1117,11 +1395,17 @@ export const ShiftManager: React.FC = () => {
                   </div>
 
                   <div className="p-3 bg-slate-950 rounded-xl border border-cyan-900/40 space-y-1">
-                    <span className="text-cyan-400 font-bold block">{settings.serverNames?.[3]}</span>
+                    <div className="flex justify-between items-center">
+                      <span className="text-cyan-400 font-bold block">{settings.serverNames?.[3]}</span>
+                      <span className="text-[10px] text-slate-400">Kas: {formatRupiah(getServerAccountBalance(3))}</span>
+                    </div>
                     <input
                       type="number"
                       value={bukaServer4}
-                      onChange={(e) => setBukaServer4(e.target.value === '' ? '' : Number(e.target.value))}
+                      onChange={(e) => {
+                        setHasManuallyEditedBuka(true);
+                        setBukaServer4(e.target.value === '' ? '' : Number(e.target.value));
+                      }}
                       placeholder="Saldo Awal Server 4"
                       className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white font-mono font-bold focus:outline-none focus:border-cyan-500"
                       required
@@ -1191,6 +1475,17 @@ export const ShiftManager: React.FC = () => {
                 </div>
               </div>
 
+              {/* Buku Kas Sync Notice Banner */}
+              <div className="p-3 bg-blue-950/40 border border-blue-900/60 rounded-2xl flex items-start gap-2.5 text-slate-300">
+                <RefreshCw className="w-4 h-4 text-blue-400 mt-0.5 shrink-0" />
+                <div className="text-[11px] leading-relaxed">
+                  <span className="font-semibold text-blue-300 block mb-0.5">
+                    Sinkronisasi Otomatis ke Buku Kas & Bank:
+                  </span>
+                  Ketika Anda mengklik <strong className="text-white">"Selesai Tutup Shift"</strong>, nominal <strong className="text-emerald-400">Saldo Akhir</strong> dari ke-4 Server Pulsa & Kuota PPOB ini akan secara otomatis memperbarui saldo akun server di Buku Kas & Bank.
+                </div>
+              </div>
+
               {/* 4 Servers Grid */}
               <div className="space-y-3">
                 <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
@@ -1238,9 +1533,14 @@ export const ShiftManager: React.FC = () => {
 
                         {/* 2. Saldo Akhir */}
                         <div>
-                          <label className="text-[10px] text-slate-400 block mb-1 font-medium truncate" title="Saldo Sisa saat tutup shift">
-                            2. Saldo Akhir (Rp):
-                          </label>
+                          <div className="flex justify-between items-center mb-1">
+                            <label className="text-[10px] text-slate-400 block font-medium truncate" title="Saldo Sisa saat tutup shift">
+                              2. Saldo Akhir:
+                            </label>
+                            <span className="text-[9px] text-blue-400 font-mono">
+                              Kas: {formatRupiah(getServerAccountBalance(idx))}
+                            </span>
+                          </div>
                           <input
                             type="number"
                             placeholder="0"
@@ -1533,6 +1833,422 @@ export const ShiftManager: React.FC = () => {
                   className="flex-1 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold"
                 >
                   Catat Beban
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Konfirmasi Hapus Shift (In-App Reliable Dialog) */}
+      {shiftToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-fadeIn">
+          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl text-white space-y-4">
+            <div className="flex items-center gap-3 pb-2 border-b border-slate-800 text-rose-400">
+              <div className="w-10 h-10 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-base text-white">Hapus Data Shift?</h3>
+                <p className="text-xs text-slate-400">Tindakan ini tidak dapat dibatalkan</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800/80 space-y-1.5">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400">Shift:</span>
+                <span className="font-bold text-white">#{shiftToDelete.shiftNumber} ({shiftToDelete.cashierName})</span>
+              </div>
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-400">Waktu Buka:</span>
+                <span className="text-slate-300">{formatDateIndo(shiftToDelete.startTime)}</span>
+              </div>
+              <div className="flex justify-between items-center text-xs pt-1 border-t border-slate-850">
+                <span className="text-slate-400">Laba Bersih Shift:</span>
+                <span className="font-mono font-bold text-emerald-400">{formatRupiah(shiftToDelete.netProfit)}</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Apakah Anda yakin ingin menghapus arsip data shift kasir ini secara permanen?
+            </p>
+
+            <div className="flex gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setShiftToDelete(null)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  deleteShift(shiftToDelete.id);
+                  setShiftToDelete(null);
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-rose-950/40 transition"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Ya, Hapus</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL PINDAH / MUTASI SALDO (SEPERTI DI BUKU KAS & BANK) */}
+      {showTransferModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-fadeIn overflow-y-auto">
+          <div className="relative w-full max-w-lg bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl overflow-hidden my-6">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-850">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-600/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                  <ArrowLeftRight className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-white text-base">
+                    Pindah / Mutasi Saldo
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Geser uang kas laci, saldo 4 server pulsa, atau rekening bank/e-wallet
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTransferModal(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleExecuteTransfer} className="p-6 space-y-4 text-xs">
+              {/* Preset Cepat Mutasi Populer */}
+              <div className="space-y-1.5">
+                <label className="text-slate-400 font-semibold block text-[11px]">
+                  Pilihan Cepat Mutasi:
+                </label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cash = accounts.find((a) => a.type === 'cash' || a.id === 'acc-cash');
+                      const srv1 = accounts.find((a) => a.id === 'acc-server-1') || accounts.filter((a) => a.type === 'server_pulsa')[0];
+                      if (cash && srv1) {
+                        setTransferFromId(cash.id);
+                        setTransferToId(srv1.id);
+                        setTransferNotes('Isi saldo Server 1 (Digipos) dari Kas Laci');
+                      }
+                    }}
+                    className="p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-red-500/50 text-left transition flex items-center gap-2 group"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-red-400"></span>
+                    <span className="text-[11px] text-slate-300 group-hover:text-white truncate">
+                      Laci ➔ Digipos (Srv 1)
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cash = accounts.find((a) => a.type === 'cash' || a.id === 'acc-cash');
+                      const srv2 = accounts.find((a) => a.id === 'acc-server-2') || accounts.filter((a) => a.type === 'server_pulsa')[1];
+                      if (cash && srv2) {
+                        setTransferFromId(cash.id);
+                        setTransferToId(srv2.id);
+                        setTransferNotes('Isi saldo Server 2 (SiDompul) dari Kas Laci');
+                      }
+                    }}
+                    className="p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-blue-500/50 text-left transition flex items-center gap-2 group"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-blue-400"></span>
+                    <span className="text-[11px] text-slate-300 group-hover:text-white truncate">
+                      Laci ➔ SiDompul (Srv 2)
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cash = accounts.find((a) => a.type === 'cash' || a.id === 'acc-cash');
+                      const srv3 = accounts.find((a) => a.id === 'acc-server-3') || accounts.filter((a) => a.type === 'server_pulsa')[2];
+                      if (cash && srv3) {
+                        setTransferFromId(cash.id);
+                        setTransferToId(srv3.id);
+                        setTransferNotes('Isi saldo Server 3 (Mobo) dari Kas Laci');
+                      }
+                    }}
+                    className="p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-yellow-500/50 text-left transition flex items-center gap-2 group"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-yellow-400"></span>
+                    <span className="text-[11px] text-slate-300 group-hover:text-white truncate">
+                      Laci ➔ Mobo (Srv 3)
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cash = accounts.find((a) => a.type === 'cash' || a.id === 'acc-cash');
+                      const srv4 = accounts.find((a) => a.id === 'acc-server-4') || accounts.filter((a) => a.type === 'server_pulsa')[3];
+                      if (cash && srv4) {
+                        setTransferFromId(cash.id);
+                        setTransferToId(srv4.id);
+                        setTransferNotes('Isi saldo Server 4 (Multi) dari Kas Laci');
+                      }
+                    }}
+                    className="p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-500/50 text-left transition flex items-center gap-2 group"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
+                    <span className="text-[11px] text-slate-300 group-hover:text-white truncate">
+                      Laci ➔ Multi (Srv 4)
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const bank = accounts.find((a) => a.type === 'bank' || a.type === 'ewallet');
+                      const srv1 = accounts.find((a) => a.id === 'acc-server-1') || accounts.filter((a) => a.type === 'server_pulsa')[0];
+                      if (bank && srv1) {
+                        setTransferFromId(bank.id);
+                        setTransferToId(srv1.id);
+                        setTransferNotes(`Top up server dari ${bank.name}`);
+                      }
+                    }}
+                    className="p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-purple-500/50 text-left transition flex items-center gap-2 group"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-purple-400"></span>
+                    <span className="text-[11px] text-slate-300 group-hover:text-white truncate">
+                      Bank / Agen ➔ Server
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const bank = accounts.find((a) => a.type === 'bank');
+                      const cash = accounts.find((a) => a.type === 'cash' || a.id === 'acc-cash');
+                      if (bank && cash) {
+                        setTransferFromId(bank.id);
+                        setTransferToId(cash.id);
+                        setTransferNotes('Tarik uang modal tunai dari Bank ke Laci');
+                      }
+                    }}
+                    className="p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-emerald-500/50 text-left transition flex items-center gap-2 group"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    <span className="text-[11px] text-slate-300 group-hover:text-white truncate">
+                      Bank ➔ Kas Laci (Tarik)
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Transfer Direction (From & To) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 relative items-end">
+                {/* Dari Akun */}
+                <div>
+                  <label className="text-slate-300 font-semibold block mb-1">
+                    Dari Akun / Saldo Asal:
+                  </label>
+                  <select
+                    value={transferFromId}
+                    onChange={(e) => setTransferFromId(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white font-medium focus:outline-none focus:border-blue-500"
+                    required
+                  >
+                    {accounts.map((acc) => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.name} ({formatRupiah(acc.balance)})
+                      </option>
+                    ))}
+                  </select>
+                  {(() => {
+                    const fromAcc = accounts.find((a) => a.id === transferFromId);
+                    return fromAcc ? (
+                      <span className="text-[10px] text-slate-400 mt-1 block font-mono">
+                        Saldo saat ini: <strong className="text-white">{formatRupiah(fromAcc.balance)}</strong>
+                      </span>
+                    ) : null;
+                  })()}
+                </div>
+
+                {/* Swap Button for mobile */}
+                <div className="sm:hidden flex justify-center">
+                  <button
+                    type="button"
+                    onClick={handleSwapTransferAccounts}
+                    className="p-2 rounded-full bg-slate-800 text-slate-300 hover:text-white border border-slate-700"
+                    title="Tukar Asal dan Tujuan"
+                  >
+                    <ArrowUpDown className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Ke Akun */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-300 font-semibold">
+                      Ke Akun / Saldo Tujuan:
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleSwapTransferAccounts}
+                      className="hidden sm:inline-flex items-center gap-1 text-[10px] text-blue-400 hover:underline cursor-pointer"
+                      title="Tukar Asal dan Tujuan"
+                    >
+                      <ArrowLeftRight className="w-3 h-3" /> Tukar
+                    </button>
+                  </div>
+                  <select
+                    value={transferToId}
+                    onChange={(e) => setTransferToId(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white font-medium focus:outline-none focus:border-blue-500"
+                    required
+                  >
+                    {accounts.map((acc) => (
+                      <option key={acc.id} value={acc.id} disabled={acc.id === transferFromId}>
+                        {acc.name} ({formatRupiah(acc.balance)})
+                      </option>
+                    ))}
+                  </select>
+                  {(() => {
+                    const toAcc = accounts.find((a) => a.id === transferToId);
+                    return toAcc ? (
+                      <span className="text-[10px] text-slate-400 mt-1 block font-mono">
+                        Saldo saat ini: <strong className="text-emerald-400">{formatRupiah(toAcc.balance)}</strong>
+                      </span>
+                    ) : null;
+                  })()}
+                </div>
+              </div>
+
+              {/* Amount Input */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-slate-300 font-semibold">Jumlah Pindah Saldo (Rp):</label>
+                  {(() => {
+                    const fromAcc = accounts.find((a) => a.id === transferFromId);
+                    return fromAcc && fromAcc.balance > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setTransferAmount(fromAcc.balance)}
+                        className="text-[10px] text-amber-400 hover:underline font-bold"
+                      >
+                        Pindahkan Semua ({formatRupiah(fromAcc.balance)})
+                      </button>
+                    ) : null;
+                  })()}
+                </div>
+
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-bold">
+                    Rp
+                  </span>
+                  <input
+                    type="number"
+                    placeholder="0"
+                    value={transferAmount}
+                    onChange={(e) => setTransferAmount(e.target.value === '' ? '' : Number(e.target.value))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-3.5 py-2.5 text-white font-mono font-bold text-base focus:outline-none focus:border-emerald-500"
+                    required
+                    min={1}
+                  />
+                </div>
+
+                {/* Quick Chips */}
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {[50000, 100000, 200000, 500000, 1000000, 2000000].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setTransferAmount((prev) => (Number(prev) || 0) + val)}
+                      className="px-2.5 py-1 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-[10px] font-mono text-slate-300 hover:text-white transition"
+                    >
+                      +{formatRupiah(val).replace('Rp\u00a0', '')}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setTransferAmount('')}
+                    className="px-2 py-1 rounded-lg bg-slate-950 hover:bg-rose-950/60 border border-slate-800 text-[10px] text-rose-400 transition"
+                  >
+                    Reset
+                  </button>
+                </div>
+              </div>
+
+              {/* Catatan / Keterangan */}
+              <div>
+                <label className="text-slate-300 font-semibold block mb-1">
+                  Catatan / Keperluan Mutasi:
+                </label>
+                <input
+                  type="text"
+                  placeholder="Contoh: Isi saldo Digipos dari kas laci"
+                  value={transferNotes}
+                  onChange={(e) => setTransferNotes(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-white focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {/* Active Shift Server Auto-Sync Checkbox */}
+              {activeShift && (() => {
+                const toAcc = accounts.find((a) => a.id === transferToId);
+                const isTargetServer = toAcc?.type === 'server_pulsa';
+                if (!isTargetServer) return null;
+                return (
+                  <div className="p-3 bg-emerald-950/40 border border-emerald-700/60 rounded-2xl flex items-start gap-2.5">
+                    <input
+                      type="checkbox"
+                      id="autoSyncShiftServer"
+                      checked={autoSyncShiftServer}
+                      onChange={(e) => setAutoSyncShiftServer(e.target.checked)}
+                      className="mt-0.5 rounded border-slate-700 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <label htmlFor="autoSyncShiftServer" className="text-[11px] text-emerald-200 cursor-pointer">
+                      <strong>Sinkronkan ke Modal Shift Berjalan:</strong> Nilai transfer ini otomatis ditambahkan sebagai Top Up pada Server di Shift Aktif (#{activeShift.shiftNumber}) sehingga perhitungan laba rekap kasir tetap akurat.
+                    </label>
+                  </div>
+                );
+              })()}
+
+              {/* Saldo Warning if Insufficient */}
+              {(() => {
+                const fromAcc = accounts.find((a) => a.id === transferFromId);
+                const amt = Number(transferAmount) || 0;
+                if (fromAcc && amt > fromAcc.balance) {
+                  return (
+                    <div className="p-3 bg-amber-950/40 border border-amber-800/60 rounded-2xl flex items-start gap-2 text-[11px] text-amber-300">
+                      <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                      <span>
+                        Peringatan: Nominal mutasi ({formatRupiah(amt)}) melebihi saldo asal ({formatRupiah(fromAcc.balance)}). Saldo asal akan bernilai minus setelah diproses.
+                      </span>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+
+              {/* Buttons */}
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowTransferModal(false)}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={!transferAmount || Number(transferAmount) <= 0 || transferFromId === transferToId}
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-950/40 transition active:scale-95 cursor-pointer"
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5" />
+                  <span>Proses Pindah Saldo</span>
                 </button>
               </div>
             </form>
