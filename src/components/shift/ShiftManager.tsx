@@ -28,10 +28,6 @@ import {
   X,
   Calculator,
   RefreshCw,
-  ArrowLeftRight,
-  ArrowUpDown,
-  Wallet,
-  QrCode,
 } from 'lucide-react';
 
 export const ShiftManager: React.FC = () => {
@@ -50,7 +46,6 @@ export const ShiftManager: React.FC = () => {
     requestOwnerPin,
     isOwnerUnlocked,
     accounts,
-    transferBetweenAccounts,
   } = useApp();
 
   // Helper to fetch live account balance from Buku Kas & Bank
@@ -116,70 +111,6 @@ export const ShiftManager: React.FC = () => {
   const [expenseAmount, setExpenseAmount] = useState<number | ''>('');
   const [expenseNote, setExpenseNote] = useState('');
   const [shiftToDelete, setShiftToDelete] = useState<ShiftRecord | null>(null);
-
-  // Pindah / Mutasi Saldo Modal State (Seperti di Buku Kas & Bank)
-  const [showTransferModal, setShowTransferModal] = useState(false);
-  const [transferFromId, setTransferFromId] = useState('');
-  const [transferToId, setTransferToId] = useState('');
-  const [transferAmount, setTransferAmount] = useState<number | ''>('');
-  const [transferNotes, setTransferNotes] = useState('Pindah saldo kasir / top up server');
-  const [autoSyncShiftServer, setAutoSyncShiftServer] = useState(true);
-
-  const handleOpenTransferModal = (preferredToId?: string, preferredFromId?: string) => {
-    const cashAcc = accounts.find((a) => a.type === 'cash' || a.id === 'acc-cash');
-    const defaultFrom = preferredFromId || cashAcc?.id || accounts[0]?.id || '';
-
-    // Default target: server 1 if not specified
-    const srv1 = accounts.find((a) => a.id === 'acc-server-1') || accounts.find((a) => a.type === 'server_pulsa');
-    const defaultTo = preferredToId || srv1?.id || accounts.find((a) => a.id !== defaultFrom)?.id || '';
-
-    setTransferFromId(defaultFrom);
-    setTransferToId(defaultTo);
-    setTransferAmount('');
-    setTransferNotes('Pindah saldo operasional / pengisian server');
-    setAutoSyncShiftServer(true);
-    setShowTransferModal(true);
-  };
-
-  const handleSwapTransferAccounts = () => {
-    const prevFrom = transferFromId;
-    setTransferFromId(transferToId);
-    setTransferToId(prevFrom);
-  };
-
-  const handleExecuteTransfer = (e: React.FormEvent) => {
-    e.preventDefault();
-    const amt = Number(transferAmount);
-    if (!amt || amt <= 0 || transferFromId === transferToId) return;
-
-    const fromAcc = accounts.find((a) => a.id === transferFromId);
-    const toAcc = accounts.find((a) => a.id === transferToId);
-
-    transferBetweenAccounts(transferFromId, transferToId, amt, transferNotes);
-
-    // If an active shift is running and destination account is one of the 4 servers:
-    if (activeShift && autoSyncShiftServer && toAcc && toAcc.type === 'server_pulsa') {
-      let targetServerId = '';
-      if (toAcc.id === 'acc-server-1') targetServerId = 'server-1';
-      else if (toAcc.id === 'acc-server-2') targetServerId = 'server-2';
-      else if (toAcc.id === 'acc-server-3') targetServerId = 'server-3';
-      else if (toAcc.id === 'acc-server-4') targetServerId = 'server-4';
-      else {
-        const srvIdx = accounts.filter((a) => a.type === 'server_pulsa').findIndex((a) => a.id === toAcc.id);
-        if (srvIdx >= 0 && srvIdx < 4) {
-          targetServerId = `server-${srvIdx + 1}`;
-        }
-      }
-
-      if (targetServerId) {
-        addShiftTopUp(targetServerId, amt);
-      }
-    }
-
-    setShowTransferModal(false);
-    setSimToast(`✅ Berhasil memindahkan saldo ${formatRupiah(amt)} dari ${fromAcc?.name || 'Asal'} ke ${toAcc?.name || 'Tujuan'}!`);
-    setTimeout(() => setSimToast(null), 4000);
-  };
 
   // KALKULATOR REKAP SERVER
   const [simServerIdx, setSimServerIdx] = useState(0); // 0: Digipos, 1: SiDompul, 2: Mobo, 3: Multi
@@ -507,15 +438,6 @@ export const ShiftManager: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={() => handleOpenTransferModal()}
-                className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-teal-700 to-emerald-700 hover:from-teal-600 hover:to-emerald-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-950/40 transition active:scale-95 cursor-pointer"
-                title="Pindah / mutasi saldo antar Kas Laci, Saldo 4 Server, Rekening Bank, atau E-Wallet"
-              >
-                <ArrowLeftRight className="w-4 h-4 text-emerald-200" />
-                Pindah / Mutasi Saldo
-              </button>
-              <button
-                type="button"
                 onClick={() => setShowTopUpModal(true)}
                 className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-blue-300 border border-blue-800/50 text-xs font-semibold flex items-center gap-1.5 transition"
               >
@@ -578,23 +500,10 @@ export const ShiftManager: React.FC = () => {
                     )}
                   </div>
 
-                  <div className="pt-2 border-t border-slate-800/80 flex justify-between items-center text-xs text-slate-300">
+                  <div className="pt-2 border-t border-slate-800/80 flex justify-between text-xs text-slate-300">
                     <span>Status:</span>
                     <span className="text-emerald-400 font-semibold">Siap Transaksi</span>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const targetAccId = accounts.find((a) => a.id === `acc-server-${idx + 1}`)?.id || accounts.filter((a) => a.type === 'server_pulsa')[idx]?.id;
-                      handleOpenTransferModal(targetAccId);
-                    }}
-                    className="w-full py-1.5 px-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 text-emerald-300 hover:text-emerald-200 border border-slate-700/80 text-[11px] font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
-                    title={`Pindah saldo kas laci atau bank ke ${srv.serverName}`}
-                  >
-                    <ArrowLeftRight className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Pindah Saldo ke Srv {idx + 1}</span>
-                  </button>
                 </div>
               ))}
             </div>
@@ -866,15 +775,6 @@ export const ShiftManager: React.FC = () => {
               >
                 <RotateCcw className="w-3.5 h-3.5 text-emerald-400" />
                 <span>Ambil Saldo Buku Kas</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleOpenTransferModal()}
-                className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-teal-800 to-emerald-800 hover:from-teal-700 hover:to-emerald-700 text-emerald-100 border border-emerald-600 font-bold flex items-center gap-1 shadow-sm cursor-pointer"
-                title="Pindah / mutasi saldo antar Kas Laci, Saldo 4 Server, Rekening Bank, atau E-Wallet"
-              >
-                <ArrowLeftRight className="w-3.5 h-3.5 text-emerald-300" />
-                <span>Pindah / Mutasi Saldo</span>
               </button>
               <button
                 type="button"
@@ -1893,365 +1793,6 @@ export const ShiftManager: React.FC = () => {
                 <span>Ya, Hapus</span>
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL PINDAH / MUTASI SALDO (SEPERTI DI BUKU KAS & BANK) */}
-      {showTransferModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-fadeIn overflow-y-auto">
-          <div className="relative w-full max-w-lg bg-slate-900 border border-slate-700 rounded-3xl shadow-2xl overflow-hidden my-6">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-850">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-emerald-600/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
-                  <ArrowLeftRight className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-white text-base">
-                    Pindah / Mutasi Saldo
-                  </h3>
-                  <p className="text-[11px] text-slate-400">
-                    Geser uang kas laci, saldo 4 server pulsa, atau rekening bank/e-wallet
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowTransferModal(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleExecuteTransfer} className="p-6 space-y-4 text-xs">
-              {/* Preset Cepat Mutasi Populer */}
-              <div className="space-y-1.5">
-                <label className="text-slate-400 font-semibold block text-[11px]">
-                  Pilihan Cepat Mutasi:
-                </label>
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const cash = accounts.find((a) => a.type === 'cash' || a.id === 'acc-cash');
-                      const srv1 = accounts.find((a) => a.id === 'acc-server-1') || accounts.filter((a) => a.type === 'server_pulsa')[0];
-                      if (cash && srv1) {
-                        setTransferFromId(cash.id);
-                        setTransferToId(srv1.id);
-                        setTransferNotes('Isi saldo Server 1 (Digipos) dari Kas Laci');
-                      }
-                    }}
-                    className="p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-red-500/50 text-left transition flex items-center gap-2 group"
-                  >
-                    <span className="w-2 h-2 rounded-full bg-red-400"></span>
-                    <span className="text-[11px] text-slate-300 group-hover:text-white truncate">
-                      Laci ➔ Digipos (Srv 1)
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const cash = accounts.find((a) => a.type === 'cash' || a.id === 'acc-cash');
-                      const srv2 = accounts.find((a) => a.id === 'acc-server-2') || accounts.filter((a) => a.type === 'server_pulsa')[1];
-                      if (cash && srv2) {
-                        setTransferFromId(cash.id);
-                        setTransferToId(srv2.id);
-                        setTransferNotes('Isi saldo Server 2 (SiDompul) dari Kas Laci');
-                      }
-                    }}
-                    className="p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-blue-500/50 text-left transition flex items-center gap-2 group"
-                  >
-                    <span className="w-2 h-2 rounded-full bg-blue-400"></span>
-                    <span className="text-[11px] text-slate-300 group-hover:text-white truncate">
-                      Laci ➔ SiDompul (Srv 2)
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const cash = accounts.find((a) => a.type === 'cash' || a.id === 'acc-cash');
-                      const srv3 = accounts.find((a) => a.id === 'acc-server-3') || accounts.filter((a) => a.type === 'server_pulsa')[2];
-                      if (cash && srv3) {
-                        setTransferFromId(cash.id);
-                        setTransferToId(srv3.id);
-                        setTransferNotes('Isi saldo Server 3 (Mobo) dari Kas Laci');
-                      }
-                    }}
-                    className="p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-yellow-500/50 text-left transition flex items-center gap-2 group"
-                  >
-                    <span className="w-2 h-2 rounded-full bg-yellow-400"></span>
-                    <span className="text-[11px] text-slate-300 group-hover:text-white truncate">
-                      Laci ➔ Mobo (Srv 3)
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const cash = accounts.find((a) => a.type === 'cash' || a.id === 'acc-cash');
-                      const srv4 = accounts.find((a) => a.id === 'acc-server-4') || accounts.filter((a) => a.type === 'server_pulsa')[3];
-                      if (cash && srv4) {
-                        setTransferFromId(cash.id);
-                        setTransferToId(srv4.id);
-                        setTransferNotes('Isi saldo Server 4 (Multi) dari Kas Laci');
-                      }
-                    }}
-                    className="p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-500/50 text-left transition flex items-center gap-2 group"
-                  >
-                    <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
-                    <span className="text-[11px] text-slate-300 group-hover:text-white truncate">
-                      Laci ➔ Multi (Srv 4)
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const bank = accounts.find((a) => a.type === 'bank' || a.type === 'ewallet');
-                      const srv1 = accounts.find((a) => a.id === 'acc-server-1') || accounts.filter((a) => a.type === 'server_pulsa')[0];
-                      if (bank && srv1) {
-                        setTransferFromId(bank.id);
-                        setTransferToId(srv1.id);
-                        setTransferNotes(`Top up server dari ${bank.name}`);
-                      }
-                    }}
-                    className="p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-purple-500/50 text-left transition flex items-center gap-2 group"
-                  >
-                    <span className="w-2 h-2 rounded-full bg-purple-400"></span>
-                    <span className="text-[11px] text-slate-300 group-hover:text-white truncate">
-                      Bank / Agen ➔ Server
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const bank = accounts.find((a) => a.type === 'bank');
-                      const cash = accounts.find((a) => a.type === 'cash' || a.id === 'acc-cash');
-                      if (bank && cash) {
-                        setTransferFromId(bank.id);
-                        setTransferToId(cash.id);
-                        setTransferNotes('Tarik uang modal tunai dari Bank ke Laci');
-                      }
-                    }}
-                    className="p-2 rounded-xl bg-slate-950 border border-slate-800 hover:border-emerald-500/50 text-left transition flex items-center gap-2 group"
-                  >
-                    <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                    <span className="text-[11px] text-slate-300 group-hover:text-white truncate">
-                      Bank ➔ Kas Laci (Tarik)
-                    </span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Transfer Direction (From & To) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 relative items-end">
-                {/* Dari Akun */}
-                <div>
-                  <label className="text-slate-300 font-semibold block mb-1">
-                    Dari Akun / Saldo Asal:
-                  </label>
-                  <select
-                    value={transferFromId}
-                    onChange={(e) => setTransferFromId(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white font-medium focus:outline-none focus:border-blue-500"
-                    required
-                  >
-                    {accounts.map((acc) => (
-                      <option key={acc.id} value={acc.id}>
-                        {acc.name} ({formatRupiah(acc.balance)})
-                      </option>
-                    ))}
-                  </select>
-                  {(() => {
-                    const fromAcc = accounts.find((a) => a.id === transferFromId);
-                    return fromAcc ? (
-                      <span className="text-[10px] text-slate-400 mt-1 block font-mono">
-                        Saldo saat ini: <strong className="text-white">{formatRupiah(fromAcc.balance)}</strong>
-                      </span>
-                    ) : null;
-                  })()}
-                </div>
-
-                {/* Swap Button for mobile */}
-                <div className="sm:hidden flex justify-center">
-                  <button
-                    type="button"
-                    onClick={handleSwapTransferAccounts}
-                    className="p-2 rounded-full bg-slate-800 text-slate-300 hover:text-white border border-slate-700"
-                    title="Tukar Asal dan Tujuan"
-                  >
-                    <ArrowUpDown className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {/* Ke Akun */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-slate-300 font-semibold">
-                      Ke Akun / Saldo Tujuan:
-                    </label>
-                    <button
-                      type="button"
-                      onClick={handleSwapTransferAccounts}
-                      className="hidden sm:inline-flex items-center gap-1 text-[10px] text-blue-400 hover:underline cursor-pointer"
-                      title="Tukar Asal dan Tujuan"
-                    >
-                      <ArrowLeftRight className="w-3 h-3" /> Tukar
-                    </button>
-                  </div>
-                  <select
-                    value={transferToId}
-                    onChange={(e) => setTransferToId(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white font-medium focus:outline-none focus:border-blue-500"
-                    required
-                  >
-                    {accounts.map((acc) => (
-                      <option key={acc.id} value={acc.id} disabled={acc.id === transferFromId}>
-                        {acc.name} ({formatRupiah(acc.balance)})
-                      </option>
-                    ))}
-                  </select>
-                  {(() => {
-                    const toAcc = accounts.find((a) => a.id === transferToId);
-                    return toAcc ? (
-                      <span className="text-[10px] text-slate-400 mt-1 block font-mono">
-                        Saldo saat ini: <strong className="text-emerald-400">{formatRupiah(toAcc.balance)}</strong>
-                      </span>
-                    ) : null;
-                  })()}
-                </div>
-              </div>
-
-              {/* Amount Input */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-slate-300 font-semibold">Jumlah Pindah Saldo (Rp):</label>
-                  {(() => {
-                    const fromAcc = accounts.find((a) => a.id === transferFromId);
-                    return fromAcc && fromAcc.balance > 0 ? (
-                      <button
-                        type="button"
-                        onClick={() => setTransferAmount(fromAcc.balance)}
-                        className="text-[10px] text-amber-400 hover:underline font-bold"
-                      >
-                        Pindahkan Semua ({formatRupiah(fromAcc.balance)})
-                      </button>
-                    ) : null;
-                  })()}
-                </div>
-
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-bold">
-                    Rp
-                  </span>
-                  <input
-                    type="number"
-                    placeholder="0"
-                    value={transferAmount}
-                    onChange={(e) => setTransferAmount(e.target.value === '' ? '' : Number(e.target.value))}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-3.5 py-2.5 text-white font-mono font-bold text-base focus:outline-none focus:border-emerald-500"
-                    required
-                    min={1}
-                  />
-                </div>
-
-                {/* Quick Chips */}
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {[50000, 100000, 200000, 500000, 1000000, 2000000].map((val) => (
-                    <button
-                      key={val}
-                      type="button"
-                      onClick={() => setTransferAmount((prev) => (Number(prev) || 0) + val)}
-                      className="px-2.5 py-1 rounded-lg bg-slate-950 hover:bg-slate-800 border border-slate-800 text-[10px] font-mono text-slate-300 hover:text-white transition"
-                    >
-                      +{formatRupiah(val).replace('Rp\u00a0', '')}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setTransferAmount('')}
-                    className="px-2 py-1 rounded-lg bg-slate-950 hover:bg-rose-950/60 border border-slate-800 text-[10px] text-rose-400 transition"
-                  >
-                    Reset
-                  </button>
-                </div>
-              </div>
-
-              {/* Catatan / Keterangan */}
-              <div>
-                <label className="text-slate-300 font-semibold block mb-1">
-                  Catatan / Keperluan Mutasi:
-                </label>
-                <input
-                  type="text"
-                  placeholder="Contoh: Isi saldo Digipos dari kas laci"
-                  value={transferNotes}
-                  onChange={(e) => setTransferNotes(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-white focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              {/* Active Shift Server Auto-Sync Checkbox */}
-              {activeShift && (() => {
-                const toAcc = accounts.find((a) => a.id === transferToId);
-                const isTargetServer = toAcc?.type === 'server_pulsa';
-                if (!isTargetServer) return null;
-                return (
-                  <div className="p-3 bg-emerald-950/40 border border-emerald-700/60 rounded-2xl flex items-start gap-2.5">
-                    <input
-                      type="checkbox"
-                      id="autoSyncShiftServer"
-                      checked={autoSyncShiftServer}
-                      onChange={(e) => setAutoSyncShiftServer(e.target.checked)}
-                      className="mt-0.5 rounded border-slate-700 text-emerald-600 focus:ring-emerald-500"
-                    />
-                    <label htmlFor="autoSyncShiftServer" className="text-[11px] text-emerald-200 cursor-pointer">
-                      <strong>Sinkronkan ke Modal Shift Berjalan:</strong> Nilai transfer ini otomatis ditambahkan sebagai Top Up pada Server di Shift Aktif (#{activeShift.shiftNumber}) sehingga perhitungan laba rekap kasir tetap akurat.
-                    </label>
-                  </div>
-                );
-              })()}
-
-              {/* Saldo Warning if Insufficient */}
-              {(() => {
-                const fromAcc = accounts.find((a) => a.id === transferFromId);
-                const amt = Number(transferAmount) || 0;
-                if (fromAcc && amt > fromAcc.balance) {
-                  return (
-                    <div className="p-3 bg-amber-950/40 border border-amber-800/60 rounded-2xl flex items-start gap-2 text-[11px] text-amber-300">
-                      <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                      <span>
-                        Peringatan: Nominal mutasi ({formatRupiah(amt)}) melebihi saldo asal ({formatRupiah(fromAcc.balance)}). Saldo asal akan bernilai minus setelah diproses.
-                      </span>
-                    </div>
-                  );
-                }
-                return null;
-              })()}
-
-              {/* Buttons */}
-              <div className="flex gap-2.5 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowTransferModal(false)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs transition cursor-pointer"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  disabled={!transferAmount || Number(transferAmount) <= 0 || transferFromId === transferToId}
-                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-950/40 transition active:scale-95 cursor-pointer"
-                >
-                  <ArrowLeftRight className="w-3.5 h-3.5" />
-                  <span>Proses Pindah Saldo</span>
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}

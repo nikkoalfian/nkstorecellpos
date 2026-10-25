@@ -883,29 +883,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       .catch((err) => console.warn('[AppContext] Firestore delete account error:', err));
   };
 
-  // Transfer between accounts (persisted to Firestore & state)
+  // Transfer between accounts
   const transferBetweenAccounts = (fromId: string, toId: string, amount: number, notes: string) => {
-    let fromNewBal = 0;
-    let toNewBal = 0;
     setAccounts((prev) =>
       prev.map((acc) => {
-        if (acc.id === fromId) {
-          fromNewBal = acc.balance - amount;
-          return { ...acc, balance: fromNewBal };
-        }
-        if (acc.id === toId) {
-          toNewBal = acc.balance + amount;
-          return { ...acc, balance: toNewBal };
-        }
+        if (acc.id === fromId) return { ...acc, balance: acc.balance - amount };
+        if (acc.id === toId) return { ...acc, balance: acc.balance + amount };
         return acc;
       })
-    );
-
-    setDoc(doc(db, 'accounts', fromId), { balance: fromNewBal }, { merge: true }).catch((err) =>
-      console.warn('Sync transfer fromAccount error:', err)
-    );
-    setDoc(doc(db, 'accounts', toId), { balance: toNewBal }, { merge: true }).catch((err) =>
-      console.warn('Sync transfer toAccount error:', err)
     );
   };
 
@@ -914,32 +899,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (mutation.type === 'transfer' && mutation.fromAccountId && mutation.toAccountId) {
       transferBetweenAccounts(mutation.fromAccountId, mutation.toAccountId, mutation.amount, mutation.notes);
     } else if (mutation.type === 'masuk' && mutation.toAccountId) {
-      let newBal = 0;
       setAccounts((prev) =>
-        prev.map((acc) => {
-          if (acc.id === mutation.toAccountId) {
-            newBal = acc.balance + mutation.amount;
-            return { ...acc, balance: newBal };
-          }
-          return acc;
-        })
-      );
-      setDoc(doc(db, 'accounts', mutation.toAccountId), { balance: newBal }, { merge: true }).catch((err) =>
-        console.warn('Sync adjustCashMutation masuk error:', err)
+        prev.map((acc) =>
+          acc.id === mutation.toAccountId ? { ...acc, balance: acc.balance + mutation.amount } : acc
+        )
       );
     } else if (mutation.type === 'keluar' && mutation.fromAccountId) {
-      let newBal = 0;
       setAccounts((prev) =>
-        prev.map((acc) => {
-          if (acc.id === mutation.fromAccountId) {
-            newBal = acc.balance - mutation.amount;
-            return { ...acc, balance: newBal };
-          }
-          return acc;
-        })
-      );
-      setDoc(doc(db, 'accounts', mutation.fromAccountId), { balance: newBal }, { merge: true }).catch((err) =>
-        console.warn('Sync adjustCashMutation keluar error:', err)
+        prev.map((acc) =>
+          acc.id === mutation.fromAccountId ? { ...acc, balance: acc.balance - mutation.amount } : acc
+        )
       );
     }
   };
