@@ -324,17 +324,28 @@ export function buildTransactionEscPosBytes(trx: Transaction, settings: StoreSet
   pushText(divider);
 
   // 5. Financial Summary
-  pushText(formatTwoColumns('Nominal:', formatRupiah(trx.nominal), width) + '\n');
-  if (trx.adminFee > 0) {
-    pushText(formatTwoColumns('Biaya Admin:', formatRupiah(trx.adminFee), width) + '\n');
+  if (trx.type === 'tarik_tunai') {
+    pushText(formatTwoColumns('Nominal Tarik:', formatRupiah(trx.nominal), width) + '\n');
+    const feeLabel = trx.feePaymentMethod === 'tunai' ? 'Biaya Admin (Tunai):' : 'Biaya Admin:';
+    pushText(formatTwoColumns(feeLabel, formatRupiah(trx.adminFee), width) + '\n');
+    const cashOut = trx.feePaymentMethod === 'potong_tunai' ? Math.max(0, trx.nominal - trx.adminFee) : trx.nominal;
+    pushText(formatTwoColumns('Uang Diterima:', formatRupiah(cashOut), width) + '\n');
+    cmds.push(0x1b, 0x45, 0x01); // Bold ON
+    pushText(formatTwoColumns('TRANSFER BANK:', formatRupiah(trx.totalAmount), width) + '\n');
+    cmds.push(0x1b, 0x45, 0x00); // Bold OFF
+  } else {
+    pushText(formatTwoColumns('Nominal:', formatRupiah(trx.nominal), width) + '\n');
+    if (trx.adminFee > 0) {
+      pushText(formatTwoColumns('Biaya Admin:', formatRupiah(trx.adminFee), width) + '\n');
+    }
+
+    cmds.push(0x1b, 0x45, 0x01); // Bold ON
+    pushText(formatTwoColumns('TOTAL BAYAR:', formatRupiah(trx.totalAmount), width) + '\n');
+    cmds.push(0x1b, 0x45, 0x00); // Bold OFF
+
+    pushText(formatTwoColumns('Uang Diterima:', formatRupiah(trx.amountPaid || trx.totalAmount), width) + '\n');
+    pushText(formatTwoColumns('Kembalian:', formatRupiah(trx.changeAmount || 0), width) + '\n');
   }
-
-  cmds.push(0x1b, 0x45, 0x01); // Bold ON
-  pushText(formatTwoColumns('TOTAL BAYAR:', formatRupiah(trx.totalAmount), width) + '\n');
-  cmds.push(0x1b, 0x45, 0x00); // Bold OFF
-
-  pushText(formatTwoColumns('Uang Diterima:', formatRupiah(trx.amountPaid || trx.totalAmount), width) + '\n');
-  pushText(formatTwoColumns('Kembalian:', formatRupiah(trx.changeAmount || 0), width) + '\n');
 
   pushText(divider);
 
@@ -376,7 +387,7 @@ export function buildShiftEscPosBytes(shift: ShiftRecord, settings: StoreSetting
 
   pushText(divider);
   cmds.push(0x1b, 0x45, 0x01); // Bold ON
-  pushText('RINCIAN 4 SERVER PULSA & KUOTA:\n');
+  pushText('RINCIAN SERVER PULSA & KUOTA:\n');
   cmds.push(0x1b, 0x45, 0x00); // Bold OFF
 
   shift.servers.forEach((srv, i) => {

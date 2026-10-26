@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 
 export const ShiftReceiptModal: React.FC = () => {
-  const { activeShiftReceipt, setActiveShiftReceipt, settings } = useApp();
+  const { activeShiftReceipt, setActiveShiftReceipt, settings, transactions } = useApp();
   const [copied, setCopied] = useState(false);
   const [targetPhone, setTargetPhone] = useState(settings.phone || '');
   const [isPrintingBT, setIsPrintingBT] = useState(false);
@@ -35,6 +35,17 @@ export const ShiftReceiptModal: React.FC = () => {
   if (!activeShiftReceipt) return null;
 
   const shift = activeShiftReceipt;
+
+  // Filter transactions that occurred during this shift
+  const shiftTrx = transactions.filter((t) => {
+    const tTime = new Date(t.timestamp).getTime();
+    const sStart = new Date(shift.startTime).getTime();
+    const sEnd = shift.endTime ? new Date(shift.endTime).getTime() : Date.now();
+    return tTime >= sStart && tTime <= sEnd;
+  });
+  const trfList = shiftTrx.filter((t) => t.type === 'transfer_uang');
+  const tarikList = shiftTrx.filter((t) => t.type === 'tarik_tunai');
+  const accList = shiftTrx.filter((t) => t.type === 'aksesoris');
 
   const handlePrintSystem = () => {
     window.print();
@@ -88,7 +99,7 @@ export const ShiftReceiptModal: React.FC = () => {
 
     const expensesList =
       s.expenses.length > 0
-        ? s.expenses.map((e) => `• ${e.note}: -${formatRupiah(e.amount)}`).join('\n')
+        ? s.expenses.map((e) => `• ${e.note}${e.sourceAccountName ? ` (${e.sourceAccountName})` : ''}: -${formatRupiah(e.amount)}`).join('\n')
         : '• Tidak ada pengeluaran';
 
     const diffText =
@@ -112,10 +123,10 @@ Total Jual Pulsa : ${formatRupiah(s.totalPulseSales)}
 Total Pakai Saldo: ${formatRupiah(s.totalPulseUsage)}
 *Laba Pulsa & PPOB: +${formatRupiah(s.totalPulseProfit)}*
 ${line}
-*PENDAPATAN LAIN SHIFT INI:*
-• Laba Aksesoris HP: +${formatRupiah(s.accessoryProfit)}
-• Laba Admin Transfer: +${formatRupiah(s.transferAdminProfit)}
-• Laba Admin Tarik Tunai: +${formatRupiah(s.tarikTunaiAdminProfit)}
+*TRANSAKSI LAYANAN LAIN SHIFT INI:*
+• Laba Aksesoris HP (${accList.length} trx, Omset ${formatRupiah(s.accessorySales)}): +${formatRupiah(s.accessoryProfit)}
+• Laba Admin Transfer (${trfList.length} transaksi): +${formatRupiah(s.transferAdminProfit)}
+• Laba Admin Tarik Tunai (${tarikList.length} transaksi): +${formatRupiah(s.tarikTunaiAdminProfit)}
 
 *PENGELUARAN SHIFT:*
 ${expensesList}
@@ -125,7 +136,7 @@ ${line}
 ${line}
 *KONTROL UANG LACI KASIR:*
 • Modal Kas Awal : ${formatRupiah(s.initialCashDrawer)}
-• Kas Seharusnya : ${formatRupiah(s.expectedCashDrawer || 0)}
+${s.additionalCashDrawer ? `• Tambahan Kas Owner: +${formatRupiah(s.additionalCashDrawer)}\n` : ''}• Kas Seharusnya : ${formatRupiah(s.expectedCashDrawer || 0)}
 • Kas Nyata Fisik: ${formatRupiah(s.finalCashDrawer || 0)}
 • Status Selisih : *${diffText}*
 ${line}
@@ -306,10 +317,10 @@ _Laporan rekap resmi ${settings.storeName}_`;
               </div>
             </div>
 
-            {/* 4 Servers Details Table */}
+            {/* Server Pulsa Details Table */}
             <div className="py-2.5 border-b border-dashed border-slate-400 text-[11px] space-y-2">
               <div className="font-bold text-slate-900 uppercase text-[10px] tracking-wider border-b border-dotted border-slate-300 pb-1">
-                RINCIAN 4 SERVER PULSA & KUOTA:
+                RINCIAN SERVER PULSA & KUOTA:
               </div>
 
               {shift.servers.map((srv, idx) => (
@@ -343,7 +354,7 @@ _Laporan rekap resmi ${settings.storeName}_`;
               ))}
 
               <div className="pt-1 text-[11px] font-bold flex justify-between">
-                <span>Total Laba 4 Server:</span>
+                <span>Total Laba Server Pulsa:</span>
                 <span className="text-emerald-800">{formatRupiah(shift.totalPulseProfit)}</span>
               </div>
             </div>
@@ -351,18 +362,18 @@ _Laporan rekap resmi ${settings.storeName}_`;
             {/* Other Services Profits */}
             <div className="py-2.5 border-b border-dashed border-slate-400 text-[11px] space-y-1">
               <div className="font-bold text-slate-900 uppercase text-[10px] tracking-wider">
-                LAYANAN LAIN SELAMA SHIFT:
+                TRANSAKSI LAYANAN LAIN SELAMA SHIFT:
               </div>
               <div className="flex justify-between text-slate-700">
-                <span>Laba Penjualan Aksesoris:</span>
+                <span>Aksesoris HP ({accList.length} trx):</span>
                 <span>+{formatRupiah(shift.accessoryProfit)}</span>
               </div>
               <div className="flex justify-between text-slate-700">
-                <span>Laba Admin Transfer Uang:</span>
+                <span>Admin Transfer ({trfList.length} trx):</span>
                 <span>+{formatRupiah(shift.transferAdminProfit)}</span>
               </div>
               <div className="flex justify-between text-slate-700">
-                <span>Laba Admin Tarik Tunai:</span>
+                <span>Admin Tarik Tunai ({tarikList.length} trx):</span>
                 <span>+{formatRupiah(shift.tarikTunaiAdminProfit)}</span>
               </div>
               {shift.totalExpenses > 0 && (
@@ -395,6 +406,12 @@ _Laporan rekap resmi ${settings.storeName}_`;
                 <span>Modal Kas Awal:</span>
                 <span>{formatRupiah(shift.initialCashDrawer)}</span>
               </div>
+              {shift.additionalCashDrawer ? (
+                <div className="flex justify-between text-emerald-800 font-semibold">
+                  <span>+ Tambahan Kas Owner:</span>
+                  <span>+{formatRupiah(shift.additionalCashDrawer)}</span>
+                </div>
+              ) : null}
               <div className="flex justify-between text-slate-600">
                 <span>Kas Yang Seharusnya:</span>
                 <span>{formatRupiah(shift.expectedCashDrawer || 0)}</span>

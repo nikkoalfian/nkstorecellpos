@@ -31,24 +31,53 @@ import confetti from 'canvas-confetti';
 import { db } from '../firebase';
 import {
   doc,
-  setDoc,
+  setDoc as rawSetDoc,
   deleteDoc,
   onSnapshot,
   collection,
 } from 'firebase/firestore';
 
+/**
+ * Recursively removes any keys with `undefined` values from an object or array.
+ * Firestore strictly disallows `undefined` values and throws an error if present.
+ */
+export function cleanFirestoreData<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data.map((item) => cleanFirestoreData(item)) as unknown as T;
+  }
+  if (typeof data === 'object' && !(data instanceof Date)) {
+    const result: Record<string, any> = {};
+    for (const [key, value] of Object.entries(data as Record<string, any>)) {
+      if (value !== undefined) {
+        result[key] = cleanFirestoreData(value);
+      }
+    }
+    return result as T;
+  }
+  return data;
+}
+
+const setDoc = (docRef: any, data: any, options?: any) => {
+  const cleaned = cleanFirestoreData(data);
+  return options ? rawSetDoc(docRef, cleaned, options) : rawSetDoc(docRef, cleaned);
+};
+
 interface OpenShiftParams {
   cashierName: string;
   initialCashDrawer: number;
-  serverInitialBalances: [number, number, number, number];
-  serverNames?: [string, string, string, string];
+  serverInitialBalances: number[];
+  serverNames?: string[];
+  serverIds?: string[];
 }
 
 interface CloseShiftParams {
-  serverTotalBalances?: [number, number, number, number];
-  serverFinalBalances: [number, number, number, number];
-  serverGrossSales?: [number, number, number, number];
-  serverProfits?: [number, number, number, number];
+  serverTotalBalances?: number[];
+  serverFinalBalances: number[];
+  serverGrossSales?: number[];
+  serverProfits?: number[];
   actualFinalCashDrawer: number;
   notes?: string;
 }
@@ -98,7 +127,8 @@ interface AppContextType {
     data: { initialBalance?: number; topUpAmount?: number; serverName?: string }
   ) => void;
   addShiftTopUp: (serverId: string, amount: number) => void;
-  addShiftExpense: (amount: number, note: string) => void;
+  addShiftCashDrawerTopUp: (amount: number, sourceAccountId?: string, note?: string) => void;
+  addShiftExpense: (amount: number, note: string, sourceAccountId?: string) => void;
   closeShift: (params: CloseShiftParams) => ShiftRecord;
   deleteShift: (id: string) => void;
 
@@ -885,13 +915,74 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Transfer between accounts
   const transferBetweenAccounts = (fromId: string, toId: string, amount: number, notes: string) => {
-    setAccounts((prev) =>
-      prev.map((acc) => {
+    setAccounts((prev) => {
+      const fromAcc = prev.find((acc) => acc.id === fromId);
+      const toAcc = prev.find((acc) => acc.id === toId);
+
+      if (fromAcc) {
+        const newFromBalance = fromAcc.balance - amount;
+        setDoc(doc(db, 'accounts', fromId), { balance: newFromBalance }, { merge: true }).catch((err) =>
+          console.warn('Sync transfer fromAccount error:', err)
+        );
+      }
+      if (toAcc) {
+        const newToBalance = toAcc.balance + amount;
+        setDoc(doc(db, 'accounts', toId), { balance: newToBalance }, { merge: true }).catch((err) =>
+          console.warn('Sync transfer toAccount error:', err)
+        );
+
+        // Jika tujuan transfer adalah kas laci konter dan shift sedang aktif, tambahkan ke modal kas laci shift
+        if (activeShift && (toId === 'acc-cash' || toAcc.type === 'cash')) {
+          setShifts((shiftsPrev) =>
+            shiftsPrev.map((s) => {
+              if (s.id === activeShift.id) {
+                const updated = {
+                  ...s,
+                  additionalCashDrawer: (s.additionalCashDrawer || 0) + amount,
+                };
+                setDoc(doc(db, 'shifts', s.id), { additionalCashDrawer: updated.additionalCashDrawer }, { merge: true }).catch(console.warn);
+                return updated;
+              }
+              return s;
+            })
+          );
+        }
+
+        // Jika tujuan transfer adalah server pulsa dan shift sedang aktif, tambahkan ke topUpAmount server tersebut
+        if (activeShift && (toAcc.type === 'server_pulsa' || toId.includes('server'))) {
+          setShifts((shiftsPrev) =>
+            shiftsPrev.map((s) => {
+              if (s.id === activeShift.id) {
+                const serverAccounts = prev.filter((a) => a.type === 'server_pulsa');
+                const srvIdx = serverAccounts.findIndex((a) => a.id === toId);
+                const updatedServers = s.servers.map((srv, idx) => {
+                  const isMatch =
+                    srv.serverId === toId ||
+                    (srvIdx !== -1 && (idx === srvIdx || srv.serverId === `server-${srvIdx + 1}`));
+                  if (isMatch) {
+                    return { ...srv, topUpAmount: (srv.topUpAmount || 0) + amount };
+                  }
+                  return srv;
+                });
+                const updated = {
+                  ...s,
+                  servers: updatedServers,
+                };
+                setDoc(doc(db, 'shifts', s.id), { servers: updatedServers }, { merge: true }).catch(console.warn);
+                return updated;
+              }
+              return s;
+            })
+          );
+        }
+      }
+
+      return prev.map((acc) => {
         if (acc.id === fromId) return { ...acc, balance: acc.balance - amount };
         if (acc.id === toId) return { ...acc, balance: acc.balance + amount };
         return acc;
-      })
-    );
+      });
+    });
   };
 
   // Adjust cash mutation
@@ -904,6 +995,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           acc.id === mutation.toAccountId ? { ...acc, balance: acc.balance + mutation.amount } : acc
         )
       );
+      if (activeShift) {
+        if (mutation.toAccountId === 'acc-cash') {
+          setShifts((shiftsPrev) =>
+            shiftsPrev.map((s) => {
+              if (s.id === activeShift.id) {
+                const updated = { ...s, additionalCashDrawer: (s.additionalCashDrawer || 0) + mutation.amount };
+                setDoc(doc(db, 'shifts', s.id), { additionalCashDrawer: updated.additionalCashDrawer }, { merge: true }).catch(console.warn);
+                return updated;
+              }
+              return s;
+            })
+          );
+        } else {
+          setShifts((shiftsPrev) =>
+            shiftsPrev.map((s) => {
+              if (s.id === activeShift.id) {
+                const updatedServers = s.servers.map((srv) => {
+                  if (
+                    srv.serverId === mutation.toAccountId ||
+                    srv.serverId === `server-${mutation.toAccountId?.replace('acc-server-', '')}`
+                  ) {
+                    return { ...srv, topUpAmount: (srv.topUpAmount || 0) + mutation.amount };
+                  }
+                  return srv;
+                });
+                setDoc(doc(db, 'shifts', s.id), { servers: updatedServers }, { merge: true }).catch(console.warn);
+                return { ...s, servers: updatedServers };
+              }
+              return s;
+            })
+          );
+        }
+      }
     } else if (mutation.type === 'keluar' && mutation.fromAccountId) {
       setAccounts((prev) =>
         prev.map((acc) =>
@@ -1060,25 +1184,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setPulsaProducts((prev) => [...prev, newProd]);
   };
 
-  // 4 Servers Shift Management
+  // Kasir POS Shift Management (Dynamic Servers)
   const openShift = (params: OpenShiftParams): ShiftRecord => {
-    const serverTitles = params.serverNames || settings.serverNames || [
-      'Server 1 - Digipos',
-      'Server 2 - SiDompul',
-      'Server 3 - Mobo',
-      'Server 4 - Multi PPOB',
-    ];
+    const serverAccounts = accounts.filter((a) => a.type === 'server_pulsa');
 
-    const initialServerItems: ServerShiftItem[] = [0, 1, 2, 3].map((idx) => ({
-      serverId: `server-${idx + 1}`,
-      serverName: serverTitles[idx],
-      initialBalance: params.serverInitialBalances[idx] || 0,
-      topUpAmount: 0,
-      finalBalance: 0,
-      usage: 0,
-      grossSales: 0,
-      profit: 0,
-    }));
+    // Tentukan jumlah server secara dinamis berdasarkan input, akun buku kas, atau default
+    const count = Math.max(
+      params.serverInitialBalances.length,
+      serverAccounts.length,
+      params.serverNames?.length || 0,
+      1
+    );
+
+    const initialServerItems: ServerShiftItem[] = [];
+    for (let idx = 0; idx < count; idx++) {
+      const serverAcc = serverAccounts[idx];
+      const serverId = params.serverIds?.[idx] || serverAcc?.id || `server-${idx + 1}`;
+      const serverName =
+        params.serverNames?.[idx] ||
+        serverAcc?.name ||
+        settings.serverNames?.[idx] ||
+        `Server ${idx + 1}`;
+      const initialBal = params.serverInitialBalances[idx] ?? (serverAcc?.balance || 0);
+
+      initialServerItems.push({
+        serverId,
+        serverName,
+        initialBalance: initialBal,
+        topUpAmount: 0,
+        finalBalance: 0,
+        usage: 0,
+        grossSales: 0,
+        profit: 0,
+      });
+    }
 
     const newShift: ShiftRecord = {
       id: 'shift-' + Date.now(),
@@ -1105,10 +1244,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       newShift,
       ...prev.map((s) => (s.status === 'open' ? { ...s, status: 'closed' as const, endTime: new Date().toISOString() } : s)),
     ]);
+    setDoc(doc(db, 'shifts', newShift.id), newShift).catch(console.warn);
 
-    // Update initial balances in accounts list for 4 servers and sync to Firestore
+    // Update initial balances in accounts list for servers & cash drawer and sync to Firestore
     setAccounts((prev) => {
-      const serverAccounts = prev.filter((a) => a.type === 'server_pulsa');
+      const srvAccs = prev.filter((a) => a.type === 'server_pulsa');
       return prev.map((acc) => {
         if (acc.id === 'acc-cash' || acc.type === 'cash') {
           const newBal = params.initialCashDrawer;
@@ -1117,17 +1257,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           );
           return { ...acc, balance: newBal };
         }
-        for (let i = 0; i < 4; i++) {
-          const isTargetServer =
-            acc.id === `acc-server-${i + 1}` ||
-            (serverAccounts[i] && serverAccounts[i].id === acc.id);
-          if (isTargetServer) {
-            const newBal = params.serverInitialBalances[i] || 0;
-            setDoc(doc(db, 'accounts', acc.id), { balance: newBal }, { merge: true }).catch((err) =>
-              console.warn('Sync open shift server note:', err)
-            );
-            return { ...acc, balance: newBal };
-          }
+        
+        const srvIdx = srvAccs.findIndex((s) => s.id === acc.id);
+        const itemIdx = initialServerItems.findIndex(
+          (it, i) => it.serverId === acc.id || (srvIdx !== -1 && i === srvIdx)
+        );
+        if (itemIdx !== -1 && params.serverInitialBalances[itemIdx] !== undefined) {
+          const newBal = params.serverInitialBalances[itemIdx] || 0;
+          setDoc(doc(db, 'accounts', acc.id), { balance: newBal }, { merge: true }).catch((err) =>
+            console.warn('Sync open shift server note:', err)
+          );
+          return { ...acc, balance: newBal };
         }
         return acc;
       });
@@ -1141,12 +1281,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setShifts((prev) =>
       prev.map((s) => {
         if (s.id === activeShift.id) {
-          const updatedServers = s.servers.map((srv) => {
-            if (srv.serverId === serverId) {
-              return { ...srv, topUpAmount: srv.topUpAmount + amount };
+          const updatedServers = s.servers.map((srv, idx) => {
+            const isTarget =
+              srv.serverId === serverId ||
+              `server-${idx + 1}` === serverId ||
+              `acc-server-${idx + 1}` === serverId ||
+              srv.serverName === serverId;
+            if (isTarget) {
+              return { ...srv, topUpAmount: (srv.topUpAmount || 0) + amount };
             }
             return srv;
           });
+          setDoc(doc(db, 'shifts', s.id), { servers: updatedServers }, { merge: true }).catch(console.warn);
           return { ...s, servers: updatedServers };
         }
         return s;
@@ -1156,20 +1302,82 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Update account balance
     setAccounts((prev) =>
       prev.map((acc) => {
-        if (acc.id === `acc-${serverId}`) {
-          return { ...acc, balance: acc.balance + amount };
+        if (
+          acc.id === serverId ||
+          acc.id === `acc-${serverId}` ||
+          acc.id === serverId.replace('server-', 'acc-server-')
+        ) {
+          const newBal = acc.balance + amount;
+          setDoc(doc(db, 'accounts', acc.id), { balance: newBal }, { merge: true }).catch(console.warn);
+          return { ...acc, balance: newBal };
         }
         return acc;
       })
     );
   };
 
-  const addShiftExpense = (amount: number, note: string) => {
+  const addShiftCashDrawerTopUp = (amount: number, sourceAccountId?: string, note?: string) => {
     if (!activeShift) return;
+
+    const additional = (activeShift.additionalCashDrawer || 0) + amount;
+
+    // 1. Update active shift with additional cash drawer from owner
+    setShifts((prev) =>
+      prev.map((s) => {
+        if (s.id === activeShift.id) {
+          const updated = {
+            ...s,
+            additionalCashDrawer: additional,
+          };
+          setDoc(doc(db, 'shifts', s.id), { additionalCashDrawer: additional }, { merge: true }).catch((err) =>
+            console.warn('Sync shift additional cash drawer note:', err)
+          );
+          return updated;
+        }
+        return s;
+      })
+    );
+
+    // 2. Synchronize to Kas Laci Konter (Uang Tunai) in accounts & Firestore
+    setAccounts((prev) => {
+      return prev.map((acc) => {
+        // Jika diambil dari akun tertentu (misal rekening bank), potong saldo akun tersebut
+        if (sourceAccountId && acc.id === sourceAccountId) {
+          const newBal = acc.balance - amount;
+          setDoc(doc(db, 'accounts', acc.id), { balance: newBal }, { merge: true }).catch((err) =>
+            console.warn('Sync source account deduction note:', err)
+          );
+          return { ...acc, balance: newBal };
+        }
+        // Tambahkan ke Kas Laci Konter (acc-cash)
+        if (acc.id === 'acc-cash' || acc.type === 'cash') {
+          const newBal = acc.balance + amount;
+          setDoc(doc(db, 'accounts', acc.id), { balance: newBal }, { merge: true }).catch((err) =>
+            console.warn('Sync cash drawer top up to Buku Kas note:', err)
+          );
+          return { ...acc, balance: newBal };
+        }
+        return acc;
+      });
+    });
+  };
+
+  const addShiftExpense = (amount: number, note: string, sourceAccountId?: string) => {
+    if (!activeShift) return;
+
+    // Tentukan akun sumber dana (default: Kas Laci Konter)
+    const selectedAccount =
+      accounts.find((a) => a.id === sourceAccountId) ||
+      accounts.find((a) => a.id === 'acc-cash' || a.type === 'cash');
+    const finalSourceId = selectedAccount ? selectedAccount.id : 'acc-cash';
+    const finalSourceName = selectedAccount ? selectedAccount.name : 'Kas Laci Konter';
+
     const expense: ShiftExpense = {
       id: 'exp-' + Date.now(),
       amount,
       note,
+      sourceAccountId: finalSourceId,
+      sourceAccountName: finalSourceName,
       time: new Date().toISOString(),
     };
 
@@ -1184,22 +1392,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             s.transferAdminProfit +
             s.tarikTunaiAdminProfit -
             totalExp;
-          return {
+          const updatedShift: ShiftRecord = {
             ...s,
             expenses: newExpenses,
             totalExpenses: totalExp,
             netProfit: newNetProfit,
           };
+          setDoc(doc(db, 'shifts', s.id), updatedShift, { merge: true }).catch((err) =>
+            console.warn('Sync shift expense to Firestore error:', err)
+          );
+          return updatedShift;
         }
         return s;
       })
     );
 
-    // Deduct cash from cash drawer
+    // Potong saldo dari akun sumber yang dipilih (Kas Laci atau Akun Buku Kas & Bank)
     setAccounts((prev) =>
       prev.map((acc) => {
-        if (acc.type === 'cash') {
-          return { ...acc, balance: Math.max(0, acc.balance - amount) };
+        if (acc.id === finalSourceId) {
+          const newBal = Math.max(0, acc.balance - amount);
+          setDoc(doc(db, 'accounts', acc.id), { balance: newBal }, { merge: true }).catch((err) =>
+            console.warn('Sync expense deduction to Firestore error:', err)
+          );
+          return { ...acc, balance: newBal };
         }
         return acc;
       })
@@ -1286,13 +1502,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       totalExp;
 
     // Expected cash drawer:
-    // Initial cash + Pulse cash sales + Accessory cash sales + Transfer admin fees - Shift expenses
+    // Initial cash + Additional cash from owner + Pulse cash sales + Accessory cash sales + Transfer admin fees - Shift expenses taken from cash drawer + (Tarik tunai fee cash in - Tarik tunai cash out)
+    const additionalCash = activeShift.additionalCashDrawer || 0;
+    const cashDrawerExpenses = activeShift.expenses
+      .filter((e) => !e.sourceAccountId || e.sourceAccountId === 'acc-cash' || e.sourceAccountName?.toLowerCase().includes('laci'))
+      .reduce((sum, e) => sum + e.amount, 0);
+
+    const tarikTunaiCashOut = activeShift.tarikTunaiCashOut || 0;
+    const tarikTunaiFeeCashIn = activeShift.tarikTunaiFeeCashIn || 0;
+    const netTarikTunaiCashChange = tarikTunaiFeeCashIn - tarikTunaiCashOut;
+
     const expectedCashDrawer =
       activeShift.initialCashDrawer +
+      additionalCash +
       totalPulseSales +
       activeShift.accessorySales +
-      activeShift.transferAdminProfit -
-      totalExp;
+      activeShift.transferAdminProfit +
+      netTarikTunaiCashChange -
+      cashDrawerExpenses;
 
     const cashDiff = params.actualFinalCashDrawer - expectedCashDrawer;
 
@@ -1328,17 +1555,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           );
           return { ...acc, balance: newBal };
         }
-        for (let i = 0; i < 4; i++) {
-          const isTargetServer =
-            acc.id === `acc-server-${i + 1}` ||
-            (serverAccounts[i] && serverAccounts[i].id === acc.id);
-          if (isTargetServer) {
-            const newBal = params.serverFinalBalances[i] !== undefined ? params.serverFinalBalances[i] : acc.balance;
-            setDoc(doc(db, 'accounts', acc.id), { balance: newBal }, { merge: true }).catch((err) =>
-              console.warn('Sync server balance note:', err)
-            );
-            return { ...acc, balance: newBal };
-          }
+        // Match server by index or ID
+        const srvIdx = serverAccounts.findIndex((s) => s.id === acc.id);
+        if (srvIdx !== -1 && params.serverFinalBalances[srvIdx] !== undefined) {
+          const newBal = params.serverFinalBalances[srvIdx];
+          setDoc(doc(db, 'accounts', acc.id), { balance: newBal }, { merge: true }).catch((err) =>
+            console.warn('Sync server balance note:', err)
+          );
+          return { ...acc, balance: newBal };
+        }
+
+        const matchItem = updatedServers.find(
+          (srv) => srv.serverId === acc.id || srv.serverId === `server-${acc.id.replace('acc-server-', '')}`
+        );
+        if (matchItem && matchItem.finalBalance !== undefined) {
+          setDoc(doc(db, 'accounts', acc.id), { balance: matchItem.finalBalance }, { merge: true }).catch((err) =>
+            console.warn('Sync server balance note:', err)
+          );
+          return { ...acc, balance: matchItem.finalBalance };
         }
         return acc;
       });
@@ -1379,7 +1613,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAccounts((currentAccounts) => {
       let updated = [...currentAccounts];
       const mutateAcc = (id: string, delta: number) => {
-        updated = updated.map((a) => (a.id === id ? { ...a, balance: a.balance + delta } : a));
+        updated = updated.map((a) => {
+          if (a.id === id) {
+            const nextBalance = a.balance + delta;
+            setDoc(doc(db, 'accounts', a.id), { balance: nextBalance }, { merge: true }).catch((err) =>
+              console.warn('Sync account balance error from addTransaction:', err)
+            );
+            return { ...a, balance: nextBalance };
+          }
+          return a;
+        });
       };
 
       const cashDrawer = updated.find((a) => a.type === 'cash') || updated[0];
@@ -1407,9 +1650,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           mutateAcc(destAcc.id, newTransaction.totalAmount);
         }
       } else if (newTransaction.type === 'tarik_tunai') {
-        mutateAcc(cashDrawer.id, -newTransaction.nominal);
         const targetBankId = newTransaction.sourceAccountId || updated.find((a) => a.type === 'bank')?.id || updated[0].id;
-        mutateAcc(targetBankId, newTransaction.totalAmount);
+        const feeMode = newTransaction.feePaymentMethod || 'tunai';
+
+        if (feeMode === 'tunai') {
+          // 1. Sesuai operasional konter:
+          // Pelanggan transfer nominal penarikan ke rekening bank konter (BCA bertambah nominal)
+          mutateAcc(targetBankId, newTransaction.nominal);
+          // Kas laci berkurang sejumlah uang fisik penarikan (-nominal) dan bertambah biaya admin fee (+adminFee)
+          // Net perubahan kas laci = -nominal + adminFee (contoh: -100.000 + 3.000 = -97.000)
+          mutateAcc(cashDrawer.id, -newTransaction.nominal + newTransaction.adminFee);
+        } else if (feeMode === 'potong_tunai') {
+          // Pelanggan transfer nominal ke rekening bank konter (+nominal)
+          mutateAcc(targetBankId, newTransaction.nominal);
+          // Kasir serahkan tunai bersih (nominal - adminFee), laci berkurang -(nominal - adminFee)
+          mutateAcc(cashDrawer.id, -(newTransaction.nominal - newTransaction.adminFee));
+        } else {
+          // feeMode === 'transfer' (Pelanggan transfer nominal + fee sekaligus ke bank konter)
+          mutateAcc(targetBankId, newTransaction.totalAmount);
+          // Kasir serahkan nominal uang fisik utuh dari laci
+          mutateAcc(cashDrawer.id, -newTransaction.nominal);
+        }
       } else if (newTransaction.type === 'aksesoris') {
         if (newTransaction.paymentMethod === 'tunai') {
           mutateAcc(cashDrawer.id, newTransaction.totalAmount);
@@ -1440,7 +1701,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     }
 
-    // Accumulate shift profit if shift is currently open
+    // Accumulate shift profit & cash drawer metrics if shift is currently open
     if (activeShift) {
       setShifts((prev) =>
         prev.map((s) => {
@@ -1449,6 +1710,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             let accProfit = s.accessoryProfit;
             let trfAdmin = s.transferAdminProfit;
             let trkAdmin = s.tarikTunaiAdminProfit;
+            let trkNominal = s.tarikTunaiNominal || 0;
+            let trkCashOut = s.tarikTunaiCashOut || 0;
+            let trkFeeCashIn = s.tarikTunaiFeeCashIn || 0;
 
             if (newTransaction.type === 'aksesoris') {
               accSales += newTransaction.totalAmount;
@@ -1457,19 +1721,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               trfAdmin += newTransaction.profit;
             } else if (newTransaction.type === 'tarik_tunai') {
               trkAdmin += newTransaction.profit;
+              trkNominal += newTransaction.nominal;
+              const feeMode = newTransaction.feePaymentMethod || 'tunai';
+              if (feeMode === 'tunai') {
+                trkCashOut += newTransaction.nominal;
+                trkFeeCashIn += newTransaction.adminFee;
+              } else if (feeMode === 'potong_tunai') {
+                trkCashOut += (newTransaction.nominal - newTransaction.adminFee);
+              } else {
+                trkCashOut += newTransaction.nominal;
+              }
             }
 
             const netProf =
               s.totalPulseProfit + accProfit + trfAdmin + trkAdmin - s.totalExpenses;
 
-            return {
+            const updatedShift: ShiftRecord = {
               ...s,
               accessorySales: accSales,
               accessoryProfit: accProfit,
               transferAdminProfit: trfAdmin,
               tarikTunaiAdminProfit: trkAdmin,
+              tarikTunaiNominal: trkNominal,
+              tarikTunaiCashOut: trkCashOut,
+              tarikTunaiFeeCashIn: trkFeeCashIn,
               netProfit: netProf,
             };
+            setDoc(doc(db, 'shifts', s.id), updatedShift, { merge: true }).catch((err) =>
+              console.warn('Sync active shift update error:', err)
+            );
+            return updatedShift;
           }
           return s;
         })
@@ -1678,6 +1959,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         openShift,
         updateActiveShiftServer,
         addShiftTopUp,
+        addShiftCashDrawerTopUp,
         addShiftExpense,
         closeShift,
         deleteShift,

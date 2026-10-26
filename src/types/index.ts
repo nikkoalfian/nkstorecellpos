@@ -84,6 +84,7 @@ export interface Transaction {
   serialNumber?: string; // SN Pulsa / Ref Bank / Token Listrik (20 digit)
   status: 'sukses' | 'pending' | 'gagal';
   notes?: string;
+  feePaymentMethod?: 'tunai' | 'transfer' | 'potong_tunai'; // Metode pembayaran biaya admin tarik tunai
   items?: { name: string; quantity: number; priceSell: number; priceCost: number }[];
 }
 
@@ -139,6 +140,8 @@ export interface ShiftExpense {
   amount: number;
   note: string;
   time: string;
+  sourceAccountId?: string;
+  sourceAccountName?: string;
 }
 
 export interface ShiftRecord {
@@ -149,6 +152,7 @@ export interface ShiftRecord {
   endTime?: string;
   status: 'open' | 'closed';
   initialCashDrawer: number;
+  additionalCashDrawer?: number; // Tambahan modal kas laci dari owner di tengah shift
   finalCashDrawer?: number;
   expectedCashDrawer?: number;
   cashDifference?: number; // Kelebihan / Kekurangan uang kas
@@ -160,6 +164,9 @@ export interface ShiftRecord {
   accessoryProfit: number;
   transferAdminProfit: number;
   tarikTunaiAdminProfit: number;
+  tarikTunaiNominal?: number; // Total nominal tarik tunai yang dilayani
+  tarikTunaiCashOut?: number; // Total uang fisik kas laci yang keluar diserahkan ke pelanggan
+  tarikTunaiFeeCashIn?: number; // Total uang fee tunai masuk ke laci kasir
 
   totalPulseSales: number;
   totalPulseUsage: number;

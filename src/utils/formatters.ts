@@ -84,10 +84,18 @@ Nominal Transfer: ${formatRupiah(trx.nominal)}
 Biaya Admin: ${formatRupiah(trx.adminFee)}
 No Referensi: ${trx.serialNumber || '-'}`;
   } else if (trx.type === 'tarik_tunai') {
+    const feeText = trx.feePaymentMethod === 'tunai'
+      ? `${formatRupiah(trx.adminFee)} (Tunai Kas Laci)`
+      : trx.feePaymentMethod === 'potong_tunai'
+      ? `${formatRupiah(trx.adminFee)} (Potong Tunai)`
+      : `${formatRupiah(trx.adminFee)} (Ditransfer)`;
+    const cashOutText = trx.feePaymentMethod === 'potong_tunai'
+      ? formatRupiah(Math.max(0, trx.nominal - trx.adminFee))
+      : formatRupiah(trx.nominal);
     detailContent = `Layanan: Tarik Tunai Kasir
-Metode: ${trx.providerBank}
-Jumlah Diterima Pelanggan: ${formatRupiah(trx.nominal)}
-Biaya Admin Konter: ${formatRupiah(trx.adminFee)}
+Bank/E-Wallet: ${trx.providerBank}
+Jumlah Uang Tunai Diterima: ${cashOutText}
+Biaya Admin Konter: ${feeText}
 Total Ditransfer Pelanggan: ${formatRupiah(trx.totalAmount)}
 No Ref: ${trx.serialNumber || '-'}`;
   } else if (trx.type === 'aksesoris') {

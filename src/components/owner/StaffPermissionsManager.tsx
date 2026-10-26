@@ -272,8 +272,8 @@ export const StaffPermissionsManager: React.FC = () => {
     // 1. Transaksi Kasir
     {
       key: 'canAccessShift',
-      title: 'Buka & Rekap Shift 4 Server',
-      description: 'Staf kasir dapat membuka shift, input saldo awal 4 server, dan tutup rekap shift harian.',
+      title: 'Buka & Rekap Kasir POS',
+      description: 'Staf kasir dapat membuka shift, kelola saldo kas laci & server pulsa PPOB, serta tutup rekap shift kasir.',
       icon: Clock,
       category: 'transaksi',
       riskLevel: 'aman',

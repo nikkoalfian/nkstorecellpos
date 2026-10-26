@@ -38,6 +38,10 @@ service cloud.firestore {
       allow read, write: if isValidId(opnameId);
     }
 
+    match /test/{testId} {
+      allow read: if true;
+    }
+
     // Default deny for unmapped documents
     match /{document=**} {
       allow read, write: if false;

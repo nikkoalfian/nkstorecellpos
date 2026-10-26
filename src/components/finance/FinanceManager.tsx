@@ -232,15 +232,20 @@ export const FinanceManager: React.FC = () => {
     e.preventDefault();
     if (!accForm.name.trim()) return;
 
-    addAccount({
+    const newAccData: Omit<AccountBalance, 'id'> = {
       name: accForm.name.trim(),
       type: accForm.type,
-      accountNumber: accForm.accountNumber.trim() || undefined,
       balance: Number(accForm.balance) || 0,
-      description: accForm.description.trim() || undefined,
       color: accForm.color,
-    });
+    };
+    if (accForm.accountNumber.trim()) {
+      newAccData.accountNumber = accForm.accountNumber.trim();
+    }
+    if (accForm.description.trim()) {
+      newAccData.description = accForm.description.trim();
+    }
 
+    addAccount(newAccData);
     setActiveModal(null);
   };
 
@@ -248,14 +253,19 @@ export const FinanceManager: React.FC = () => {
     e.preventDefault();
     if (!selectedAcc || !accForm.name.trim()) return;
 
-    updateAccount(selectedAcc.id, {
+    const updatedData: Partial<AccountBalance> = {
       name: accForm.name.trim(),
       type: accForm.type,
-      accountNumber: accForm.accountNumber.trim() || undefined,
-      description: accForm.description.trim() || undefined,
       color: accForm.color,
-    });
+    };
+    if (accForm.accountNumber.trim()) {
+      updatedData.accountNumber = accForm.accountNumber.trim();
+    }
+    if (accForm.description.trim()) {
+      updatedData.description = accForm.description.trim();
+    }
 
+    updateAccount(selectedAcc.id, updatedData);
     setActiveModal(null);
   };
 

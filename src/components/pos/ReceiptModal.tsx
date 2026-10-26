@@ -366,28 +366,58 @@ export const ReceiptModal: React.FC = () => {
 
             {/* Financial Summary */}
             <div className="py-2.5 border-b border-dashed border-slate-400 text-[11px] space-y-1">
-              <div className="flex justify-between">
-                <span className="text-slate-600">Nominal:</span>
-                <span>{formatRupiah(trx.nominal)}</span>
-              </div>
-              {trx.adminFee > 0 && (
-                <div className="flex justify-between">
-                  <span className="text-slate-600">Biaya Admin:</span>
-                  <span>{formatRupiah(trx.adminFee)}</span>
-                </div>
+              {trx.type === 'tarik_tunai' ? (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Nominal Penarikan:</span>
+                    <span>{formatRupiah(trx.nominal)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Biaya Admin:</span>
+                    <span>
+                      {formatRupiah(trx.adminFee)}{' '}
+                      <span className="text-[9px] text-slate-500">
+                        ({trx.feePaymentMethod === 'tunai' ? 'Tunai Laci' : trx.feePaymentMethod === 'potong_tunai' ? 'Potong Tunai' : 'Transfer'})
+                      </span>
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Uang Diterima Pelanggan:</span>
+                    <span className="font-semibold text-slate-900">
+                      {formatRupiah(trx.feePaymentMethod === 'potong_tunai' ? Math.max(0, trx.nominal - trx.adminFee) : trx.nominal)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between font-bold text-xs pt-1 border-t border-dotted border-slate-300">
+                    <span>TRANSFER KE BANK:</span>
+                    <span className="text-sm">{formatRupiah(trx.totalAmount)}</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">Nominal:</span>
+                    <span>{formatRupiah(trx.nominal)}</span>
+                  </div>
+                  {trx.adminFee > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">Biaya Admin:</span>
+                      <span>{formatRupiah(trx.adminFee)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-bold text-xs pt-1 border-t border-dotted border-slate-300">
+                    <span>TOTAL:</span>
+                    <span className="text-sm">{formatRupiah(trx.totalAmount)}</span>
+                  </div>
+                  <div className="flex justify-between text-[11px] text-slate-600 pt-0.5">
+                    <span>Uang Bayar:</span>
+                    <span>{formatRupiah(trx.amountPaid || trx.totalAmount)}</span>
+                  </div>
+                  <div className="flex justify-between text-[11px] text-slate-600">
+                    <span>Kembalian:</span>
+                    <span className="font-semibold text-slate-800">{formatRupiah(trx.changeAmount || 0)}</span>
+                  </div>
+                </>
               )}
-              <div className="flex justify-between font-bold text-xs pt-1 border-t border-dotted border-slate-300">
-                <span>TOTAL:</span>
-                <span className="text-sm">{formatRupiah(trx.totalAmount)}</span>
-              </div>
-              <div className="flex justify-between text-[11px] text-slate-600 pt-0.5">
-                <span>Uang Bayar:</span>
-                <span>{formatRupiah(trx.amountPaid || trx.totalAmount)}</span>
-              </div>
-              <div className="flex justify-between text-[11px] text-slate-600">
-                <span>Kembalian:</span>
-                <span className="font-semibold text-slate-800">{formatRupiah(trx.changeAmount || 0)}</span>
-              </div>
             </div>
 
             {/* Footer Message */}

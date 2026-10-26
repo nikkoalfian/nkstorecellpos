@@ -18,6 +18,7 @@ import { PinModal } from './components/auth/PinModal';
 import { OwnerDashboard } from './components/owner/OwnerDashboard';
 import { StaffPermissionsManager } from './components/owner/StaffPermissionsManager';
 import { RestrictedAccessView } from './components/common/RestrictedAccessView';
+import { ShiftRequiredGuardView } from './components/common/ShiftRequiredGuardView';
 import { LoginPage } from './components/auth/LoginPage';
 
 const MainContent: React.FC = () => {
@@ -30,6 +31,7 @@ const MainContent: React.FC = () => {
     switchViewMode,
     logout,
     currentUser,
+    activeShift,
   } = useApp();
 
   const isOwner = viewMode === 'owner' && isOwnerUnlocked;
@@ -254,7 +256,7 @@ const MainContent: React.FC = () => {
             <ShiftManager />
           ) : (
             <RestrictedAccessView
-              featureName="Shift & 4 Server"
+              featureName="Kasir POS"
               onGoBack={() => handleSelectTab(getFirstAllowedStaffTab())}
             />
           )
@@ -263,7 +265,18 @@ const MainContent: React.FC = () => {
         {/* Transfer Uang */}
         {activeTab === 'transfer' && (
           hasPermission('canAccessTransfer') ? (
-            <PosTransfer />
+            !isOwner && !activeShift ? (
+              <ShiftRequiredGuardView
+                featureName="Transfer Uang"
+                onGoToShift={() => handleSelectTab('shift')}
+                onUnlockSuccess={() => {
+                  switchViewMode('owner');
+                  handleSelectTab('transfer');
+                }}
+              />
+            ) : (
+              <PosTransfer />
+            )
           ) : (
             <RestrictedAccessView
               featureName="Transfer Uang"
@@ -275,7 +288,18 @@ const MainContent: React.FC = () => {
         {/* Tarik Tunai */}
         {activeTab === 'tarik_tunai' && (
           hasPermission('canAccessTarikTunai') ? (
-            <PosTarikTunai />
+            !isOwner && !activeShift ? (
+              <ShiftRequiredGuardView
+                featureName="Tarik Tunai"
+                onGoToShift={() => handleSelectTab('shift')}
+                onUnlockSuccess={() => {
+                  switchViewMode('owner');
+                  handleSelectTab('tarik_tunai');
+                }}
+              />
+            ) : (
+              <PosTarikTunai />
+            )
           ) : (
             <RestrictedAccessView
               featureName="Tarik Tunai"
@@ -287,7 +311,18 @@ const MainContent: React.FC = () => {
         {/* Pos Aksesoris */}
         {activeTab === 'aksesoris' && (
           hasPermission('canAccessPosAksesoris') ? (
-            <PosAksesoris onGoToInventory={handleGoToInventory} />
+            !isOwner && !activeShift ? (
+              <ShiftRequiredGuardView
+                featureName="Kasir Penjualan Aksesoris HP"
+                onGoToShift={() => handleSelectTab('shift')}
+                onUnlockSuccess={() => {
+                  switchViewMode('owner');
+                  handleSelectTab('aksesoris');
+                }}
+              />
+            ) : (
+              <PosAksesoris onGoToInventory={handleGoToInventory} />
+            )
           ) : (
             <RestrictedAccessView
               featureName="Kasir Aksesoris"

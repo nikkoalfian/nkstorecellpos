@@ -105,7 +105,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
         },
         {
           id: 'shift' as ActiveTab,
-          label: 'Shift & 4 Server',
+          label: 'Kasir POS',
           icon: Clock,
           color: 'text-amber-400',
           badge: activeShift ? 'Aktif' : 'Buka',
@@ -131,7 +131,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
           ? [
               {
                 id: 'shift' as ActiveTab,
-                label: 'Shift & 4 Server',
+                label: 'Kasir POS',
                 icon: Clock,
                 color: 'text-amber-400',
                 badge: activeShift ? 'Aktif' : 'Buka',
@@ -140,13 +140,40 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onOpenS
             ]
           : []),
         ...(hasPermission('canAccessTransfer')
-          ? [{ id: 'transfer' as ActiveTab, label: 'Transfer Uang', icon: Send, color: 'text-indigo-400' }]
+          ? [
+              {
+                id: 'transfer' as ActiveTab,
+                label: 'Transfer Uang',
+                icon: Send,
+                color: 'text-indigo-400',
+                badge: !activeShift ? 'Kunci' : undefined,
+                badgeColor: 'bg-amber-950 text-amber-300 border border-amber-700/50 text-[9px]',
+              },
+            ]
           : []),
         ...(hasPermission('canAccessTarikTunai')
-          ? [{ id: 'tarik_tunai' as ActiveTab, label: 'Tarik Tunai', icon: Banknote, color: 'text-emerald-400' }]
+          ? [
+              {
+                id: 'tarik_tunai' as ActiveTab,
+                label: 'Tarik Tunai',
+                icon: Banknote,
+                color: 'text-emerald-400',
+                badge: !activeShift ? 'Kunci' : undefined,
+                badgeColor: 'bg-amber-950 text-amber-300 border border-amber-700/50 text-[9px]',
+              },
+            ]
           : []),
         ...(hasPermission('canAccessPosAksesoris')
-          ? [{ id: 'aksesoris' as ActiveTab, label: 'Kasir Aksesoris', icon: ShoppingBag, color: 'text-purple-400' }]
+          ? [
+              {
+                id: 'aksesoris' as ActiveTab,
+                label: 'Kasir Aksesoris',
+                icon: ShoppingBag,
+                color: 'text-purple-400',
+                badge: !activeShift ? 'Kunci' : undefined,
+                badgeColor: 'bg-amber-950 text-amber-300 border border-amber-700/50 text-[9px]',
+              },
+            ]
           : []),
         ...(hasPermission('canAccessInventory')
           ? [{ id: 'inventory' as ActiveTab, label: 'Gudang Stok', icon: Building2, color: 'text-purple-400' }]

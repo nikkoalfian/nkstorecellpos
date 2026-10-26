@@ -384,9 +384,9 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({ onNavigateTab, o
 
             <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 text-xs text-slate-300 flex items-center justify-between">
               <div>
-                <span className="font-bold text-white">Ingin ubah nama 4 server atau input saldo shift?</span>
+                <span className="font-bold text-white">Ingin kelola server pulsa atau input saldo shift kasir?</span>
                 <p className="text-slate-400 text-[11px]">
-                  Buka menu Shift & 4 Server untuk memantau perputaran saldo, cek laba, atau tutup shift.
+                  Buka menu Kasir POS untuk memantau perputaran saldo, cek laba, atau tutup shift.
                 </p>
               </div>
               <button
@@ -394,7 +394,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({ onNavigateTab, o
                 onClick={() => onNavigateTab('shift')}
                 className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition"
               >
-                Buka Menu Shift
+                Buka Kasir POS
               </button>
             </div>
           </div>
